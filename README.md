@@ -1,7 +1,5 @@
 # health
-<p style='text-align: right;'>
 [![thisdougb](https://circleci.com/gh/thisdougb/health.svg?style=shield)](https://circleci.com/gh/thisdougb/health)
-</p>
 
 An easy way to track metrics in Go apps.
 
