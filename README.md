@@ -1,4 +1,6 @@
 # health
+[![thisdougb](https://circleci.com/gh/thisdougb/health.svg?style=shield)](https://circleci.com/gh/thisdougb/health)
+
 An easy way to track metrics in Go apps.
 
 A good example is using the health package in a service architecture
