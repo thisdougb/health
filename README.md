@@ -47,8 +47,8 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 ```
 When we call our web app, and then /health we can see the metric:
 ```
-thisdougb curl http://localhost:8000/
-thisdougb curl http://localhost:8000/health
+$ curl http://localhost:8000/
+$ curl http://localhost:8000/health
 Health: {
     "Identity": "node-ac3e6",
     "Started": 1589113356,
