@@ -1,7 +1,7 @@
 # health
 [![thisdougb](https://circleci.com/gh/thisdougb/health.svg?style=shield)](https://circleci.com/gh/thisdougb/health)
 
-A Go package to make tracking and reporting metrics app easy.
+A Go package to make tracking and reporting metrics in containers app's easy.
 
 A good example is using the health package in a service architecture
 running on k8s. Each container can run a /health http handler that
