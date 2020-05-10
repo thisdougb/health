@@ -1,7 +1,9 @@
 # health
-An easy way to track metrics in Go apps.
-
+<p style='text-align: right;'>
 [![thisdougb](https://circleci.com/gh/thisdougb/health.svg?style=shield)](https://circleci.com/gh/thisdougb/health)
+</p>
+
+An easy way to track metrics in Go apps.
 
 A good example is using the health package in a service architecture
 running on k8s. Each container can run a /health http handler that
