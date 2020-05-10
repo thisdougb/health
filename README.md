@@ -9,7 +9,7 @@ simple returns the json output from health.Dump(). A dashboard can
 consume that json ouput, using it for alerting, graphs, logs, etc.
 
 Using a standard metrics output across all app services, means it is
-trivial to build a dashboard that auto-discoveres any container.
+trivial to build a dashboard that auto-discovers any container.
 
 The intention is that this package is used in a similar way to /proc
 on *nix systems. It is the responsibility of the metrics consumer to
