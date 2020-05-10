@@ -1,8 +1,22 @@
 # health
 An easy way to track metrics in Go apps.
 
-In a DevOps environment running containers, speed and simplicity are desirable qualities.
-The motivation for this package is to enable quick implementation of application metrics, and easy consumption.
+A good example is using the health package in a service architecture
+running on k8s. Each container can run a /health http handler that
+simple returns the json output from health.Dump(). A dashboard can
+consume that json ouput, using it for alerting, graphs, logs, etc.
+
+Using a standard metrics output across all app services, means it is
+trivial to build a dashboard that auto-discoveres any container.
+
+The intention is that this package is used in a similar way to /proc
+on *nix systems. It is the responsibility of the metrics consumer to
+handle rates over time (message per second, for example). This keeps
+the health package simple.
+
+In a DevOps team, ops can run a consumer at high frequency while
+troubleshooting, for example per second. While a log aggregator like
+DataDog can consume at per minute.
 
 
 ## Install
