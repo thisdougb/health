@@ -7,7 +7,7 @@ import (
 )
 
 func TestInfoMethodSetters(t *testing.T) {
-	// func (s *state) Info(string, int)
+	// Test setting the identity and rolling data size.
 	//
 	identity := "workerXYZ"
 	rDataSize := 5
@@ -30,8 +30,8 @@ func TestInfoMethodSetters(t *testing.T) {
 }
 
 func TestInfoMethodSetterDefaults(t *testing.T) {
-	// func (s *state) Info(string, int)
-	//
+	// Test setting the identity and rolling data size uses defaults
+	// when no values are supplied.
 	identity := ""
 	rDataSize := 0
 
@@ -53,7 +53,7 @@ func TestInfoMethodSetterDefaults(t *testing.T) {
 }
 
 func TestIncrMetric(t *testing.T) {
-	// func (s *state) Info(string, int)
+	// Test incrementing a simple metric.
 	//
 	metricName := "myMetric"
 	metricName2 := "myMetric2"
@@ -89,8 +89,25 @@ func TestIncrMetric(t *testing.T) {
 	}
 }
 
+func TestIncrMetricIgnoresEmptyName(t *testing.T) {
+	// Test incrementing a metric when supplying no name string
+	// ignores the incr and sets no value.
+	metricName := ""
+
+	var s State
+	s.Info("test", 10)
+
+	// Test single incr
+	s.IncrMetric(metricName)
+	result := s.Dump()
+	searchFor := "\"Metrics\": null"
+	searchResult := strings.Index(result, searchFor)
+	if searchResult < 0 {
+		t.Errorf("Metric increment failed")
+	}
+}
 func TestRollingMetricNewValue(t *testing.T) {
-	// func (s *state) Info(string, int)
+	// Test setting a single value for a rolling metric.
 	//
 	metricName := "myRollingMetric"
 	metricValue := 1.0
@@ -108,7 +125,7 @@ func TestRollingMetricNewValue(t *testing.T) {
 }
 
 func TestMultipleRollingMetrics(t *testing.T) {
-	// func (s *state) Info(string, int)
+	// Test for correct value when supplying many rolling data points.
 	//
 	metricName := "myRollingMetric"
 	metricName2 := "myRollingMetric2"
