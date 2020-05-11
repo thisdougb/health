@@ -3,6 +3,7 @@ package health
 import (
 	"encoding/json"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -17,6 +18,8 @@ type State struct {
 	rollingMetricsData map[string]*rollingMetric
 	RollingMetrics     map[string]float64
 }
+
+var mu sync.Mutex // writer lock
 
 // Info method sets the identity string for this metrics instance, and
 // the sample size of for rolling average metrics. The identity string
@@ -47,15 +50,17 @@ func (s *State) Info(identity string, rollingDataSize int) {
 // value, so the very first call to IncrMetric() always results in a value of 1.
 func (s *State) IncrMetric(name string) {
 
-	if len(name) > 0 {
-
-		if s.Metrics == nil {
-			s.Metrics = make(map[string]int)
-		}
-
-		s.Metrics[name]++
+	if len(name) < 1 { // no name, no entry
+		return
 	}
 
+	mu.Lock() // enter CRITICAL SECTION
+	if s.Metrics == nil {
+		s.Metrics = make(map[string]int)
+	}
+
+	s.Metrics[name]++
+	mu.Unlock() // end CRITICAL SECTION
 }
 
 // UpdateRollingMetric adds data point for this metric, and re-calculates the
@@ -63,6 +68,11 @@ func (s *State) IncrMetric(name string) {
 // we expect a float64 type as the data point parameter.
 func (s *State) UpdateRollingMetric(name string, value float64) {
 
+	if len(name) < 1 { // no name, no entry
+		return
+	}
+
+	mu.Lock() // enter CRITICAL SECTION
 	_, ok := s.RollingMetrics[name]
 	if !ok {
 		if s.RollingMetrics == nil {
@@ -81,9 +91,12 @@ func (s *State) UpdateRollingMetric(name string, value float64) {
 		s.RollingMetrics = make(map[string]float64)
 	}
 	s.RollingMetrics[name] = newValue
+	mu.Unlock() // end CRITICAL SECTION
 }
 
-// Dump returns a JSON byte-string
+// Dump returns a JSON byte-string.
+// We do not use a reader lock because it is probably unnecessary here,
+// in this scenario.
 func (s *State) Dump() string {
 
 	var dataString string
