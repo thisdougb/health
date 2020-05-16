@@ -1,5 +1,6 @@
 # health
 [![thisdougb](https://circleci.com/gh/thisdougb/health.svg?style=shield)](https://circleci.com/gh/thisdougb/health)
+[![Go Report](https://goreportcard.com/badge/github.com/thisdougb/health)](https://goreportcard.com/badge/github.com/thisdougb/health)
 
 A Go package to make tracking and reporting metrics in containers app's easy.
 
@@ -73,5 +74,5 @@ Health: {
         "indexRequest": 1
     },
     "RollingMetrics": null
-} 
+}
 ```
