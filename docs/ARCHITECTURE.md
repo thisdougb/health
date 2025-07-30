@@ -195,6 +195,36 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 - **Auto-discovery**: Identity field enables automatic service discovery
 - **Production-ready**: Thread-safe, defensive, and reliable
 
+### API Design Philosophy
+
+**"Expose behavior, hide implementation"** - The package API should expose what users need to accomplish (incrementing metrics, getting health data) while hiding how it's accomplished (storage mechanisms, internal data structures, locking strategies).
+
+#### Public API Principles
+- **Behavior-focused methods**: `IncrMetric()`, `UpdateRollingMetric()`, `Dump()`
+- **Simple configuration**: Clear initialization with sensible defaults
+- **Stable interfaces**: Public API changes require major version bumps
+- **Self-documenting**: Method names clearly indicate their purpose
+
+#### Private Implementation Strategy
+- **Lowercase naming**: All internal functions and types use lowercase names
+- **Internal packages**: Complex subsystems isolated in `internal/` directories
+- **Implementation flexibility**: Internal structures can change without breaking users
+- **Encapsulated complexity**: Database operations, file I/O, and alert logic remain hidden
+
+#### Go Best Practices for Privacy
+```go
+// Public API - exposes behavior
+func (s *State) IncrMetric(name string)           // ✅ Public behavior
+func (s *State) HealthHandler() http.HandlerFunc  // ✅ Public integration
+
+// Private implementation - hides complexity  
+func (s *State) persistMetrics() error            // ✅ Private implementation
+type alertEngine struct { ... }                   // ✅ Private internal type
+var connectionPool *sql.DB                        // ✅ Private shared resource
+```
+
+This approach enables the package to evolve internally while maintaining a stable, simple public interface that users can depend on.
+
 ## Extensibility Considerations
 
 ### Current Limitations

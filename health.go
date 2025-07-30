@@ -5,6 +5,8 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	"github.com/thisdougb/health/internal/metrics"
 )
 
 // State holds our health data, and calculates rolling average metrics
@@ -15,7 +17,7 @@ type State struct {
 	Started            int64
 	RollingDataSize    int
 	Metrics            map[string]int
-	rollingMetricsData map[string]*rollingMetric
+	rollingMetricsData map[string]*metrics.RollingMetric
 	RollingMetrics     map[string]float64
 }
 
@@ -76,11 +78,9 @@ func (s *State) UpdateRollingMetric(name string, value float64) {
 	_, ok := s.RollingMetrics[name]
 	if !ok {
 		if s.RollingMetrics == nil {
-			s.rollingMetricsData = make(map[string]*rollingMetric)
+			s.rollingMetricsData = make(map[string]*metrics.RollingMetric)
 		}
-		var m rollingMetric
-		m.data = make([]float64, s.RollingDataSize)
-		s.rollingMetricsData[name] = &m
+		s.rollingMetricsData[name] = metrics.NewRollingMetric(s.RollingDataSize)
 	}
 
 	metric := s.rollingMetricsData[name]
