@@ -1,65 +1,69 @@
 /*
-Package health provides an easy way to record and report metrics.
+Package health provides an easy way to record and report metrics in containerized applications.
 
-⚠️  WARNING: BREAKING CHANGES IN PROGRESS
-This package is currently undergoing a major refactor to improve the API design.
-Breaking changes will occur without notice. Do not use in production until this
-warning is removed.
+The package supports two types of metrics:
+- Counter metrics: Simple incrementers stored in memory and optionally persisted
+- Raw value metrics: Individual values persisted to storage backend for analysis
 
 A good example is using the health package in a service architecture
 running on k8s. Each container can run a /health http handler that
-simply returns the json output from health.Dump(). A dashboard can
-consume that json output, using it for alerting, graphs, logs, etc.
+returns the json output from health.Dump() for real-time counter metrics.
+Historical analysis is performed by querying the persistence backend directly.
 
-Using a standard metrics output across all app services, means it is
+Using a standard metrics output across all app services means it is
 trivial to build a dashboard that auto-discovers any container.
 
-The intention is that this package is used in a similar way to /proc
-on *nix systems. It is the responsibility of the metrics consumer to
-handle rates over time (message per second, for example). This keeps
-the health package simple.
-
-In a DevOps team, ops can run a consumer at high frequency while
-troubleshooting, for example per second. While a log aggregator like
-DataDog can consume at per minute.
+The package supports optional persistence to SQLite for historical analysis,
+configured via environment variables. When persistence is disabled, the
+package works purely in-memory like the original design.
 
 Example:
 
-	// Create a new health state instance
+	// Create a new health state instance (automatically loads persistence config)
 	s := health.NewState()
+	defer s.Close() // Always close gracefully to flush pending data
 
-	// Configure with unique ID and rolling average sample size
-	s.SetConfig("worker-123xyz", 5)
+	// Configure with unique instance identifier
+	s.SetConfig("worker-123xyz")
 
 	for i := 0; i < 10; i++ {
-		// Simple incrementer metric
-		s.IncrMetric("example-counter-metric")
-
-		// Add data point for rolling average metric
-		s.UpdateRollingMetric("example-avg-metric", float64(i))
-
-		// Component-specific metrics
+		// Counter metrics (stored in memory + persisted)
+		s.IncrMetric("requests")
 		s.IncrComponentMetric("webserver", "requests")
-		s.UpdateComponentRollingMetric("database", "query-time", float64(i*10))
+
+		// Raw value metrics (persisted to storage backend for analysis)
+		s.AddMetric("response_time", float64(i*10+50))
+		s.AddComponentMetric("database", "query_time", float64(i*5+10))
 	}
 
-	// Export as JSON
+	// Export counter metrics as JSON (raw values are in storage backend)
 	jsonOutput := s.Dump()
 
-Output:
+Output (counter metrics only):
 
 	{
-		"Identity": "worker-123xyz",
+		"Identity": "worker-123xyz", 
 		"Started": 1589108939,
-		"RollingDataSize": 5,
 		"Metrics": {
-			"example-counter-metric": 10,
-			"webserver_requests": 10
-		},
-		"RollingMetrics": {
-			"example-avg-metric": 4.5,
-			"database_query-time": 45
+			"Global": {
+				"requests": 10
+			},
+			"webserver": {
+				"requests": 10
+			}
 		}
 	}
+
+Persistence Configuration:
+
+	// Enable SQLite persistence via environment variables
+	HEALTH_PERSISTENCE_ENABLED=true
+	HEALTH_DB_PATH="/data/health.db"
+	HEALTH_FLUSH_INTERVAL="60s"
+	HEALTH_BATCH_SIZE="100"
+
+The separation of counter metrics (real-time status) and raw values (historical analysis)
+provides flexibility for different use cases while maintaining high performance for
+metric collection operations.
 */
 package health

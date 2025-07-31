@@ -5,6 +5,7 @@ import (
 
 	"github.com/thisdougb/health/internal/core"
 	"github.com/thisdougb/health/internal/handlers"
+	"github.com/thisdougb/health/internal/storage"
 )
 
 // State is the public interface for the health monitoring system
@@ -19,12 +20,18 @@ func NewState() *State {
 	}
 }
 
-// SetConfig method sets the identity string for this metrics instance, and
-// the sample size of for rolling average metrics. The identity string
-// will be in the Dump() output. A unique ID means we can find
+// NewStateWithPersistence creates a new health monitoring state instance with specified persistence
+func NewStateWithPersistence(persistence *storage.Manager) *State {
+	return &State{
+		impl: core.NewStateWithPersistence(persistence),
+	}
+}
+
+// SetConfig method sets the identity string for this metrics instance.
+// The identity string will be in the Dump() output. A unique ID means we can find
 // this node in a k8s cluster, for example.
-func (s *State) SetConfig(identity string, rollingDataSize int) {
-	s.impl.Info(identity, rollingDataSize)
+func (s *State) SetConfig(identity string) {
+	s.impl.Info(identity)
 }
 
 // IncrMetric increments a simple counter metric by one. Metrics start with a zero
@@ -33,11 +40,9 @@ func (s *State) IncrMetric(name string) {
 	s.impl.IncrMetric(name)
 }
 
-// UpdateRollingMetric adds data point for this metric, and re-calculates the
-// rolling average metric value. Rolling averages are typical float types, so
-// we expect a float64 type as the data point parameter.
-func (s *State) UpdateRollingMetric(name string, value float64) {
-	s.impl.UpdateRollingMetric(name, value)
+// AddMetric records a raw metric value that gets persisted to storage
+func (s *State) AddMetric(name string, value float64) {
+	s.impl.AddGlobalMetric(name, value)
 }
 
 // Dump returns a JSON byte-string.
@@ -70,7 +75,12 @@ func (s *State) IncrComponentMetric(component, name string) {
 	s.impl.IncrComponentMetric(component, name)
 }
 
-// UpdateComponentRollingMetric updates a rolling metric for a specific component
-func (s *State) UpdateComponentRollingMetric(component, name string, value float64) {
-	s.impl.UpdateComponentRollingMetric(component, name, value)
+// AddComponentMetric records a raw metric value for a specific component
+func (s *State) AddComponentMetric(component, name string, value float64) {
+	s.impl.AddMetric(component, name, value)
+}
+
+// Close gracefully shuts down the health state and flushes any pending data
+func (s *State) Close() error {
+	return s.impl.Close()
 }

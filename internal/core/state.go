@@ -6,33 +6,46 @@ import (
 	"sync"
 	"time"
 
-	"github.com/thisdougb/health/internal/metrics"
+	"github.com/thisdougb/health/internal/storage"
 )
 
-// StateImpl holds our health data, and calculates rolling average metrics
-// whenever a new data point is added. This is the internal implementation.
+// StateImpl holds our health data and persists all metric values.
+// This is the internal implementation.
 type StateImpl struct {
-	Identity           string
-	Started            int64
-	RollingDataSize    int
-	Metrics            map[string]map[string]int
-	rollingMetricsData map[string]*metrics.RollingMetric
-	RollingMetrics     map[string]map[string]float64
-	mu                 sync.Mutex // writer lock
+	Identity    string
+	Started     int64
+	Metrics     map[string]map[string]int
+	persistence *storage.Manager
+	mu          sync.Mutex // writer lock
 }
 
 // NewState creates a new state instance
 func NewState() *StateImpl {
-	return &StateImpl{}
+	// Try to initialize persistence from environment config
+	persistence, err := storage.NewManagerFromConfig()
+	if err != nil {
+		// Log error but continue without persistence
+		log.Printf("Warning: Failed to initialize persistence: %v", err)
+		persistence = storage.NewManager(nil, false)
+	}
+
+	return &StateImpl{
+		persistence: persistence,
+	}
 }
 
-// Info method sets the identity string for this metrics instance, and
-// the sample size of for rolling average metrics. The identity string
-// will be in the Dump() output. A unique ID means we can find
+// NewStateWithPersistence creates a new state instance with specified persistence manager
+func NewStateWithPersistence(persistence *storage.Manager) *StateImpl {
+	return &StateImpl{
+		persistence: persistence,
+	}
+}
+
+// Info method sets the identity string for this metrics instance.
+// The identity string will be in the Dump() output. A unique ID means we can find
 // this node in a k8s cluster, for example.
-func (s *StateImpl) Info(identity string, rollingDataSize int) {
+func (s *StateImpl) Info(identity string) {
 	defaultIdentity := "identity unset"
-	defaultRollingDataSize := 10
 
 	t := time.Now()
 	s.Started = t.Unix()
@@ -41,12 +54,6 @@ func (s *StateImpl) Info(identity string, rollingDataSize int) {
 		s.Identity = defaultIdentity
 	} else {
 		s.Identity = identity
-	}
-
-	if rollingDataSize < 1 {
-		s.RollingDataSize = defaultRollingDataSize
-	} else {
-		s.RollingDataSize = rollingDataSize
 	}
 }
 
@@ -72,48 +79,30 @@ func (s *StateImpl) IncrComponentMetric(component, name string) {
 	}
 
 	s.Metrics[component][name]++
+	currentValue := s.Metrics[component][name]
 	s.mu.Unlock() // end CRITICAL SECTION
+
+	// Persist metric asynchronously (non-blocking) - the storage backend handles queuing
+	if err := s.persistence.PersistMetric(component, name, currentValue, "counter"); err != nil {
+		log.Printf("Warning: Failed to persist counter metric %s.%s: %v", component, name, err)
+	}
 }
 
-// UpdateRollingMetric adds data point for this metric, and re-calculates the
-// rolling average metric value. Rolling averages are typical float types, so
-// we expect a float64 type as the data point parameter.
-// This method handles global rolling metrics.
-func (s *StateImpl) UpdateRollingMetric(name string, value float64) {
-	s.UpdateComponentRollingMetric("Global", name, value)
-}
-
-// UpdateComponentRollingMetric updates a rolling metric for a specific component
-func (s *StateImpl) UpdateComponentRollingMetric(component, name string, value float64) {
+// AddMetric records a raw metric value for a specific component
+func (s *StateImpl) AddMetric(component, name string, value float64) {
 	if len(name) < 1 { // no name, no entry
 		return
 	}
 
-	metricKey := component + "_" + name
-	s.mu.Lock() // enter CRITICAL SECTION
-
-	// Initialize rolling metrics data if needed
-	if s.rollingMetricsData == nil {
-		s.rollingMetricsData = make(map[string]*metrics.RollingMetric)
+	// Persist metric asynchronously (non-blocking) - the storage backend handles queuing
+	if err := s.persistence.PersistMetric(component, name, value, "value"); err != nil {
+		log.Printf("Warning: Failed to persist metric %s.%s: %v", component, name, err)
 	}
+}
 
-	_, ok := s.rollingMetricsData[metricKey]
-	if !ok {
-		s.rollingMetricsData[metricKey] = metrics.NewRollingMetric(s.RollingDataSize)
-	}
-
-	metric := s.rollingMetricsData[metricKey]
-	newValue := metric.Add(value)
-
-	// update RollingMetrics for json output
-	if s.RollingMetrics == nil {
-		s.RollingMetrics = make(map[string]map[string]float64)
-	}
-	if s.RollingMetrics[component] == nil {
-		s.RollingMetrics[component] = make(map[string]float64)
-	}
-	s.RollingMetrics[component][name] = newValue
-	s.mu.Unlock() // end CRITICAL SECTION
+// AddGlobalMetric records a raw metric value in the Global component
+func (s *StateImpl) AddGlobalMetric(name string, value float64) {
+	s.AddMetric("Global", name, value)
 }
 
 // Dump returns a JSON byte-string.
@@ -129,4 +118,12 @@ func (s *StateImpl) Dump() string {
 	dataString = string(data)
 
 	return dataString
+}
+
+// Close gracefully shuts down the state instance and flushes any pending data
+func (s *StateImpl) Close() error {
+	if s.persistence != nil {
+		return s.persistence.Close()
+	}
+	return nil
 }

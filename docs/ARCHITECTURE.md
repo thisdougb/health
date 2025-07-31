@@ -13,44 +13,43 @@ The health package provides a simple, thread-safe metrics collection system desi
 
 ### 1. Data Methods (Metrics Recording)
 
-#### State Struct (`health.go`)
+#### State Struct (`internal/core/state.go`)
 
-The `State` struct is the primary interface for metrics collection, now supporting both global and component-based metrics:
+The `StateImpl` struct is the internal implementation for metrics collection, supporting both global and component-based metrics with persistence:
 
 ```go
-type State struct {
-    Identity           string                    // Instance identifier
-    Started            int64                     // Unix timestamp of initialization
-    RollingDataSize    int                       // Sample size for rolling averages
-    Metrics            map[string]int            // Global counter metrics
-    ComponentMetrics   map[string]map[string]int // Component-based counter metrics
-    rollingMetricsData map[string]*rollingMetric // Internal rolling metric storage
-    RollingMetrics     map[string]float64        // Rolling average values for JSON output
+type StateImpl struct {
+    Identity    string                    // Instance identifier
+    Started     int64                     // Unix timestamp of initialization
+    Metrics     map[string]map[string]int // Component-based counter metrics
+    persistence *storage.Manager          // Persistence coordination
+    mu          sync.Mutex               // Writer lock for thread safety
 }
 ```
 
 #### Metric Recording Methods
 
-**Global Metrics (existing):**
+**Counter Metrics (stored in memory + persisted):**
 ```go
-func (s *State) IncrMetric(name string)                    // System-wide counters
-func (s *State) UpdateRollingMetric(name string, value float64) // System-wide averages
+func (s *State) IncrMetric(name string)                       // Global counters
+func (s *State) IncrComponentMetric(component, name string)   // Component counters
 ```
 
-**Component-Based Metrics (new):**
+**Raw Value Metrics (persisted to storage backend):**
 ```go
-func (s *State) IncrComponentMetric(component, name string)     // Component counters
-func (s *State) UpdateComponentRollingMetric(component, name string, value float64) // Component averages
+func (s *State) AddMetric(name string, value float64)                    // Global values
+func (s *State) AddComponentMetric(component, name string, value float64) // Component values
 ```
 
 **Key Design Decisions**:
-- **Component organization**: Metrics organized by application component for complex systems
-- **API design rationale**: Separate methods (`IncrComponentMetric`) vs variadic parameters due to Go limitations
+- **Dual storage model**: Counter metrics in memory for real-time, raw values persisted for analysis
+- **Component organization**: Metrics organized by application component for complex systems  
+- **API design rationale**: Separate methods for different metric types (counters vs raw values)
 - **Backward compatibility**: Existing `IncrMetric()` unchanged, new methods are additive
-- **Public JSON fields**: All metric maps exported for JSON serialization
-- **Private internal storage**: rollingMetricsData is unexported to prevent direct manipulation
-- **Thread-safe operations**: All write operations protected by global mutex
+- **Async persistence**: Raw values persisted asynchronously to avoid blocking metric collection
+- **Thread-safe operations**: All write operations protected by mutex
 - **Zero-value initialization**: Maps are created lazily on first use
+- **Client-side aggregation**: Raw values stored in backend for flexible analysis by clients
 
 ### 2. Data Access (Web Request Handling)
 
@@ -87,21 +86,23 @@ func (s *State) HandleHealthRequest(w http.ResponseWriter, r *http.Request)
 - Single-file deployment simplicity
 - Historical metrics for analysis
 
-### Rolling Metric Implementation (`rolling_metric.go`)
+### Persistence Layer (`internal/storage/`)
 
-The `rollingMetric` struct implements a circular buffer for efficient rolling average calculations:
+The persistence layer provides pluggable storage backends for historical metric data:
 
 ```go
-type rollingMetric struct {
-    data  []float64  // Fixed-size circular buffer
-    index int        // Current write position
+type Backend interface {
+    WriteMetrics(metrics []MetricEntry) error
+    ReadMetrics(component string, start, end time.Time) ([]MetricEntry, error)
+    ListComponents() ([]string, error)
+    Close() error
 }
 ```
 
-**Algorithm**:
-- **Circular buffer**: Overwrites oldest values when buffer is full
-- **Simple average**: Sums all values and divides by buffer size
-- **No complex statistics**: Focuses on simplicity over advanced metrics
+**Implementations**:
+- **Memory Backend**: Fast in-memory storage for testing and development
+- **SQLite Backend**: Production-ready persistence with async write queue
+- **Async Processing**: Background goroutine batches writes to prevent blocking
 
 ## Thread Safety Model
 
@@ -112,8 +113,9 @@ var mu sync.Mutex // writer lock
 ```
 
 **Locking Strategy**:
-- **Write operations only**: `IncrMetric()` and `UpdateRollingMetric()` use mutex
+- **Write operations only**: `IncrMetric()` and `IncrComponentMetric()` use mutex
 - **Read operations unprotected**: `Dump()` reads without locking for performance
+- **Persistence calls**: Raw value persistence happens outside critical sections
 - **Rationale**: Health monitoring scenarios prioritize availability over perfect consistency
 
 ### Concurrency Considerations
@@ -126,31 +128,32 @@ var mu sync.Mutex // writer lock
 
 ### Initialization Flow
 
-1. **Instance Creation**: `State` struct created (typically as package variable)
-2. **Configuration**: `Info(identity, rollingDataSize)` sets instance parameters
+1. **Instance Creation**: `State` struct created with persistence manager
+2. **Configuration**: `SetConfig(identity)` sets instance parameters
 3. **Timestamp Recording**: `Started` field set to current Unix timestamp
-4. **Default Handling**: Empty identity or invalid rolling size use defaults
+4. **Persistence Setup**: Storage backend initialized from environment variables
+5. **Default Handling**: Empty identity uses sensible defaults
 
 ### Metric Collection Flow
 
-#### Simple Counters
+#### Counter Metrics
 ```
-Application Event → IncrMetric(name) → Mutex Lock → Map Update → Mutex Unlock
+Application Event → IncrMetric(name) → Mutex Lock → Map Update → Mutex Unlock → Async Persist
 ```
 
-#### Rolling Averages
+#### Raw Value Metrics
 ```
-Application Event → UpdateRollingMetric(name, value) → Mutex Lock → 
-    Circular Buffer Update → Average Calculation → JSON Map Update → Mutex Unlock
+Application Event → AddMetric(name, value) → Async Persist (no blocking)
 ```
 
 ### Export Flow
 
 ```
-HTTP Request → Dump() → JSON Marshal → HTTP Response
+HTTP Request → Dump() → JSON Marshal (counter metrics only) → HTTP Response
 ```
 
 **No Locking**: Export operates without mutex for maximum availability during health checks.
+**Counter Metrics Only**: Raw values are not included in JSON output - they're stored in backend for analysis.
 
 ## Memory Management
 
@@ -158,14 +161,15 @@ HTTP Request → Dump() → JSON Marshal → HTTP Response
 
 Maps are created only when first needed:
 - **Metrics map**: Created on first `IncrMetric()` call
-- **Rolling metrics**: Created per-metric on first `UpdateRollingMetric()` call
-- **Benefit**: Zero memory overhead for unused metric types
+- **Component maps**: Created per-component on first metric for that component
+- **Benefit**: Zero memory overhead for unused components
 
-### Fixed Memory Footprint
+### Predictable Memory Usage
 
-- **Rolling buffers**: Fixed size based on `RollingDataSize` parameter
+- **Counter storage only**: Only counter metrics stored in memory
 - **No unbounded growth**: Counter metrics are bounded by application usage
-- **Predictable scaling**: Memory usage scales linearly with unique metric names
+- **Predictable scaling**: Memory usage scales linearly with unique counter metric names
+- **Raw values external**: Raw metric values stored in persistence backend, not memory
 
 ## JSON Serialization Design
 
@@ -175,12 +179,13 @@ Maps are created only when first needed:
 {
     "Identity": "node-ac3e6",
     "Started": 1589113356,
-    "RollingDataSize": 5,
     "Metrics": {
-        "requestCount": 42
-    },
-    "RollingMetrics": {
-        "responseTime": 245.6
+        "Global": {
+            "requests": 42
+        },
+        "webserver": {
+            "requests": 100
+        }
     }
 }
 ```
@@ -189,8 +194,9 @@ Maps are created only when first needed:
 
 - **Structured JSON**: Easy parsing by monitoring systems
 - **Timestamped**: `Started` field enables uptime calculations
-- **Self-describing**: `Identity` and `RollingDataSize` provide context
-- **Flat structure**: Simple key-value pairs for metrics
+- **Self-describing**: `Identity` provides context for the instance
+- **Component organized**: Counter metrics grouped by component for clarity
+- **Real-time only**: Shows current counter state, not historical data
 
 ## Error Handling Philosophy
 

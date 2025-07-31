@@ -1,19 +1,16 @@
 package health
 
 import (
-	"strconv"
 	"strings"
 	"testing"
 )
 
 func TestInfoMethodSetters(t *testing.T) {
-	// Test setting the identity and rolling data size.
-	//
+	// Test setting the identity.
 	identity := "workerXYZ"
-	rDataSize := 5
 
 	s := NewState()
-	s.SetConfig(identity, rDataSize)
+	s.SetConfig(identity)
 	result := s.Dump()
 
 	searchFor := "\"Identity\": \"" + identity + "\","
@@ -21,22 +18,14 @@ func TestInfoMethodSetters(t *testing.T) {
 	if searchResult < 0 {
 		t.Errorf("Info failed to set Identity")
 	}
-
-	searchFor = "\"RollingDataSize\": " + strconv.Itoa(rDataSize) + ","
-	searchResult = strings.Index(result, searchFor)
-	if searchResult < 0 {
-		t.Errorf("Info failed to set RollingDataPoints")
-	}
 }
 
 func TestInfoMethodSetterDefaults(t *testing.T) {
-	// Test setting the identity and rolling data size uses defaults
-	// when no values are supplied.
+	// Test setting the identity uses defaults when no values are supplied.
 	identity := ""
-	rDataSize := 0
 
 	s := NewState()
-	s.SetConfig(identity, rDataSize)
+	s.SetConfig(identity)
 	result := s.Dump()
 
 	searchFor := "\"Identity\": \"identity unset\","
@@ -44,102 +33,122 @@ func TestInfoMethodSetterDefaults(t *testing.T) {
 	if searchResult < 0 {
 		t.Errorf("Info failed to set default Identity")
 	}
-
-	searchFor = "\"RollingDataSize\": 10,"
-	searchResult = strings.Index(result, searchFor)
-	if searchResult < 0 {
-		t.Errorf("Info failed to set default RollingDataPoints")
-	}
 }
 
 func TestIncrMetric(t *testing.T) {
-	// Test incrementing a simple metric.
-	//
-	metricName := "myMetric"
-	metricName2 := "myMetric2"
-
+	// Test incrementing metrics.
 	s := NewState()
-	s.SetConfig("test", 10)
+	s.SetConfig("test-node")
 
-	// Test single incr
-	s.IncrMetric(metricName)
+	s.IncrMetric("requestsRecvd")
+	s.IncrMetric("requestsRecvd")
+	s.IncrMetric("requestsRecvd")
+
 	result := s.Dump()
-	searchFor := "\"" + metricName + "\": 1"
+
+	searchFor := "\"requestsRecvd\": 3"
 	searchResult := strings.Index(result, searchFor)
 	if searchResult < 0 {
-		t.Errorf("Metric increment failed. Result: %s", result)
-	}
-
-	// Test second incr on same metric
-	s.IncrMetric(metricName)
-	result = s.Dump()
-	searchFor = "\"" + metricName + "\": 2"
-	searchResult = strings.Index(result, searchFor)
-	if searchResult < 0 {
-		t.Errorf("Metric second increment failed")
-	}
-
-	// Test incr on second metric
-	s.IncrMetric(metricName2)
-	result = s.Dump()
-	searchFor = "\"" + metricName2 + "\": 1"
-	searchResult = strings.Index(result, searchFor)
-	if searchResult < 0 {
-		t.Errorf("Increment on second metric failed")
+		t.Errorf("IncrMetric failed to increment to expected value")
 	}
 }
 
 func TestIncrMetricIgnoresEmptyName(t *testing.T) {
-	// Test incrementing a metric when supplying no name string
-	// ignores the incr and sets no value.
-	metricName := ""
-
+	// Test empty metric names are ignored
 	s := NewState()
-	s.SetConfig("test", 10)
+	s.SetConfig("test-node")
 
-	// Test single incr
-	s.IncrMetric(metricName)
-	result := s.Dump()
-	searchFor := "\"Metrics\": null"
-	searchResult := strings.Index(result, searchFor)
-	if searchResult < 0 {
-		t.Errorf("Metric increment failed")
-	}
-}
-func TestRollingMetricNewValue(t *testing.T) {
-	// Test setting a single value for a rolling metric.
-	//
-	metricName := "myRollingMetric"
-	metricValue := 1.0
-
-	s := NewState()
-	s.SetConfig("test", 10)
-	s.UpdateRollingMetric(metricName, metricValue)
+	s.IncrMetric("")
 	result := s.Dump()
 
-	searchFor := "\"" + metricName + "\": 0.1"
-	searchResult := strings.Index(result, searchFor)
-	if searchResult < 0 {
-		t.Errorf("Metric increment failed")
+	// Should not contain any empty-named metrics
+	if strings.Contains(result, "\"\": ") {
+		t.Errorf("IncrMetric should ignore empty metric names")
 	}
 }
 
-func TestMultipleRollingMetrics(t *testing.T) {
-	// Test for correct value when supplying many rolling data points.
-	//
-	metricName := "myRollingMetric"
-	metricName2 := "myRollingMetric2"
-	metricValue := 1.0
-
+func TestAddMetric(t *testing.T) {
+	// Test adding raw metric values
 	s := NewState()
-	s.SetConfig("test", 10)
-	s.UpdateRollingMetric(metricName, metricValue)
-	s.UpdateRollingMetric(metricName2, metricValue)
+	s.SetConfig("test-node")
+
+	// Add some values - they should be persisted to storage backend
+	s.AddMetric("response_time", 125.5)
+	s.AddMetric("cpu_usage", 45.2)
+
+	// Verify state still works for in-memory data
+	result := s.Dump()
+	if result == "" {
+		t.Errorf("Dump should return non-empty JSON")
+	}
+
+	// Values are persisted asynchronously to storage, not in the JSON dump
+	// The Dump() now only shows counter metrics, not raw values
+}
+
+func TestComponentMetrics(t *testing.T) {
+	// Test component-based metrics
+	s := NewState()
+	s.SetConfig("test-node")
+
+	// Test component counters
+	s.IncrComponentMetric("webserver", "requests")
+	s.IncrComponentMetric("webserver", "requests")
+	s.IncrComponentMetric("database", "queries")
+
+	// Test component values
+	s.AddComponentMetric("webserver", "response_time", 123.4)
+	s.AddComponentMetric("database", "query_time", 56.7)
+
 	result := s.Dump()
 
-	searchFor := "\"" + metricName + "\": 0.1"
-	searchResult := strings.Index(result, searchFor)
-	if searchResult < 0 {
-		t.Errorf("Metric increment failed")
+	// Check for component-based counter metrics
+	if !strings.Contains(result, "\"webserver\"") {
+		t.Errorf("Component metrics should include webserver component")
+	}
+
+	if !strings.Contains(result, "\"database\"") {
+		t.Errorf("Component metrics should include database component")
+	}
+}
+
+func TestJSONStructure(t *testing.T) {
+	// Test the overall JSON structure
+	s := NewState()
+	s.SetConfig("test-structure")
+
+	s.IncrMetric("global_counter")
+	s.IncrComponentMetric("web", "requests")
+
+	result := s.Dump()
+
+	// Should contain basic fields
+	expectedFields := []string{
+		"\"Identity\":",
+		"\"Started\":",
+		"\"Metrics\":",
+	}
+
+	for _, field := range expectedFields {
+		if !strings.Contains(result, field) {
+			t.Errorf("JSON output missing expected field: %s", field)
+		}
+	}
+}
+
+func TestClose(t *testing.T) {
+	// Test that Close method works
+	s := NewState()
+	s.SetConfig("test-close")
+
+	err := s.Close()
+	if err != nil {
+		t.Errorf("Close() should not return error: %v", err)
+	}
+
+	// Should be safe to call multiple times
+	err = s.Close()
+	if err != nil {
+		t.Errorf("Multiple Close() calls should not return error: %v", err)
 	}
 }

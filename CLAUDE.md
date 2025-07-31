@@ -76,30 +76,32 @@ No external testing frameworks are used - standard Go testing only.
 ```go
 // Initialize
 state := health.NewState()
-state.SetConfig("my-app", 10)
+state.SetConfig("my-app")
 
-// Global metrics
+// Counter metrics (stored in memory + persisted)
 state.IncrMetric("requests")
-state.UpdateRollingMetric("response_time", 145.2)
-
-// Component-based metrics  
 state.IncrComponentMetric("webserver", "requests")
 state.IncrComponentMetric("database", "queries")
-state.UpdateComponentRollingMetric("cache", "hit_rate", 0.85)
 
-// Export JSON - new structure groups metrics by component
+// Raw value metrics (persisted to storage for analysis)
+state.AddMetric("response_time", 145.2)
+state.AddComponentMetric("cache", "hit_rate", 0.85)
+
+// Export JSON - shows counter metrics only (raw values go to storage)
 json := state.Dump()
+
+// Always close gracefully to flush pending data
+defer state.Close()
 ```
 
 ### JSON Output Structure
 
-The package outputs metrics in a component-organized structure designed for easy programmatic consumption:
+The package outputs counter metrics in a component-organized structure designed for easy programmatic consumption:
 
 ```json
 {
     "Identity": "my-app",
     "Started": 1753959967,
-    "RollingDataSize": 10,
     "Metrics": {
         "Global": {
             "requests": 150
@@ -110,23 +112,16 @@ The package outputs metrics in a component-organized structure designed for easy
         "database": {
             "queries": 250
         }
-    },
-    "RollingMetrics": {
-        "Global": {
-            "response_time": 145.2
-        },
-        "cache": {
-            "hit_rate": 0.85
-        }
     }
 }
 ```
 
 **Key Features:**
-- **Component grouping**: Metrics are organized by component for easy filtering
+- **Component grouping**: Counter metrics are organized by component for easy filtering
 - **Global as component**: Global metrics are grouped under "Global" for consistency
-- **Clean naming**: No prefixed metric names - components are used as organizational keys
-- **Computer-friendly**: Optimized for consumption by tools like `jq` and AI systems
+- **Real-time counters**: Shows current counter values for immediate status
+- **Raw values separate**: Raw metric values are persisted to storage backend for historical analysis
+- **Computer-friendly**: Optimized for consumption by tools like `jq` and monitoring systems
 
 ### Web Request Handling
 ```go
@@ -142,10 +137,25 @@ http.HandleFunc("/health/", func(w http.ResponseWriter, r *http.Request) {
 
 ### Production with Persistence
 ```go
-// Enable SQLite persistence via environment variable
+// Enable SQLite persistence via environment variables
 // HEALTH_PERSISTENCE_ENABLED=true
 // HEALTH_DB_PATH="/data/health.db"
 // HEALTH_FLUSH_INTERVAL="60s"
+// HEALTH_BATCH_SIZE="100"
+
+state := health.NewState() // Automatically uses env config
+state.SetConfig("production-app")
+
+// Counter metrics - stored in memory + persisted
+state.IncrMetric("requests")
+state.IncrComponentMetric("api", "requests")
+
+// Raw values - persisted only (for historical analysis)
+state.AddMetric("response_time", 142.5)
+state.AddComponentMetric("database", "query_time", 23.1)
+
+// Always close gracefully in production
+defer state.Close()
 ```
 
 ## Development Workflow
