@@ -6,17 +6,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/thisdougb/health/internal/metrics"
 	"github.com/thisdougb/health/internal/storage"
 )
 
 // StateImpl holds our health data and persists all metric values.
 // This is the internal implementation.
 type StateImpl struct {
-	Identity    string
-	Started     int64
-	Metrics     map[string]map[string]int
-	persistence *storage.Manager
-	mu          sync.Mutex // writer lock
+	Identity        string
+	Started         int64
+	Metrics         map[string]map[string]int
+	persistence     *storage.Manager
+	systemCollector *metrics.SystemCollector
+	mu              sync.Mutex // writer lock
 }
 
 // NewState creates a new state instance
@@ -29,16 +31,28 @@ func NewState() *StateImpl {
 		persistence = storage.NewManager(nil, false)
 	}
 
-	return &StateImpl{
+	state := &StateImpl{
 		persistence: persistence,
 	}
+
+	// Initialize and start system metrics collector
+	state.systemCollector = metrics.NewSystemCollector(state)
+	state.systemCollector.Start()
+	
+	return state
 }
 
 // NewStateWithPersistence creates a new state instance with specified persistence manager
 func NewStateWithPersistence(persistence *storage.Manager) *StateImpl {
-	return &StateImpl{
+	state := &StateImpl{
 		persistence: persistence,
 	}
+
+	// Initialize and start system metrics collector
+	state.systemCollector = metrics.NewSystemCollector(state)
+	state.systemCollector.Start()
+	
+	return state
 }
 
 // Info method sets the identity string for this metrics instance.
@@ -122,6 +136,12 @@ func (s *StateImpl) Dump() string {
 
 // Close gracefully shuts down the state instance and flushes any pending data
 func (s *StateImpl) Close() error {
+	// Stop system metrics collection
+	if s.systemCollector != nil {
+		s.systemCollector.Stop()
+	}
+	
+	// Close persistence manager
 	if s.persistence != nil {
 		return s.persistence.Close()
 	}

@@ -19,11 +19,12 @@ The `StateImpl` struct is the internal implementation for metrics collection, su
 
 ```go
 type StateImpl struct {
-    Identity    string                    // Instance identifier
-    Started     int64                     // Unix timestamp of initialization
-    Metrics     map[string]map[string]int // Component-based counter metrics
-    persistence *storage.Manager          // Persistence coordination
-    mu          sync.Mutex               // Writer lock for thread safety
+    Identity        string                    // Instance identifier
+    Started         int64                     // Unix timestamp of initialization
+    Metrics         map[string]map[string]int // Component-based counter metrics
+    persistence     *storage.Manager          // Persistence coordination
+    systemCollector *metrics.SystemCollector  // Automatic system metrics collection
+    mu              sync.Mutex               // Writer lock for thread safety
 }
 ```
 
@@ -50,6 +51,36 @@ func (s *State) AddComponentMetric(component, name string, value float64) // Com
 - **Thread-safe operations**: All write operations protected by mutex
 - **Zero-value initialization**: Maps are created lazily on first use
 - **Client-side aggregation**: Raw values stored in backend for flexible analysis by clients
+
+#### System Metrics Collection (`internal/metrics/system.go`)
+
+The package includes automatic system metrics collection that runs in the background:
+
+```go
+type SystemCollector struct {
+    state      StateInterface
+    startTime  time.Time
+    interval   time.Duration
+    ctx        context.Context
+    cancel     context.CancelFunc
+    enabled    bool
+}
+```
+
+**Automatically Collected Metrics:**
+- `cpu_percent` - CPU utilization percentage (simplified estimation)
+- `memory_bytes` - Current memory allocation in bytes
+- `health_data_size` - Estimated size of health metrics data in memory
+- `goroutines` - Number of active goroutines
+- `uptime_seconds` - Application uptime in seconds
+
+**Key Features:**
+- **Always enabled**: System metrics collection starts automatically with every State instance
+- **Background collection**: Runs every minute in a separate goroutine
+- **Non-blocking**: Zero performance impact on application metric operations
+- **Persistent storage**: All system metrics are stored in the persistence backend for analysis
+- **Memory efficient**: Only raw values are persisted, not stored in memory counters
+- **Graceful shutdown**: Collection stops when State.Close() is called
 
 ### 2. Data Access (Web Request Handling)
 
@@ -129,10 +160,11 @@ var mu sync.Mutex // writer lock
 ### Initialization Flow
 
 1. **Instance Creation**: `State` struct created with persistence manager
-2. **Configuration**: `SetConfig(identity)` sets instance parameters
-3. **Timestamp Recording**: `Started` field set to current Unix timestamp
-4. **Persistence Setup**: Storage backend initialized from environment variables
-5. **Default Handling**: Empty identity uses sensible defaults
+2. **System Metrics Setup**: SystemCollector initialized and started automatically
+3. **Configuration**: `SetConfig(identity)` sets instance parameters
+4. **Timestamp Recording**: `Started` field set to current Unix timestamp
+5. **Persistence Setup**: Storage backend initialized from environment variables
+6. **Default Handling**: Empty identity uses sensible defaults
 
 ### Metric Collection Flow
 
@@ -144,6 +176,11 @@ Application Event → IncrMetric(name) → Mutex Lock → Map Update → Mutex U
 #### Raw Value Metrics
 ```
 Application Event → AddMetric(name, value) → Async Persist (no blocking)
+```
+
+#### System Metrics
+```
+Timer (1 minute) → SystemCollector.collectSystemMetrics() → AddMetric(system, name, value) → Async Persist
 ```
 
 ### Export Flow
@@ -216,12 +253,14 @@ Health monitoring must be extremely reliable - better to ignore invalid operatio
 ### Time Complexity
 
 - **IncrMetric()**: O(1) - simple map increment
-- **UpdateRollingMetric()**: O(n) where n = RollingDataSize for average calculation
+- **AddMetric()**: O(1) - direct persistence call (async)
+- **SystemCollector.CollectOnce()**: O(1) - fixed number of system metrics
 - **Dump()**: O(m) where m = total number of metrics for JSON marshalling
 
 ### Space Complexity
 
-- **Per instance**: O(k + r×n) where k = unique counter metrics, r = unique rolling metrics, n = RollingDataSize
+- **Per instance**: O(k + s) where k = unique counter metrics, s = system metrics (constant)
+- **System metrics**: Fixed 5 metrics collected automatically, stored in persistence backend only
 - **Typical usage**: Very low memory footprint for standard containerized applications
 
 ## Integration Patterns

@@ -30,7 +30,13 @@ The package is organized by core capabilities:
 - **SQLite persistence** - background sync every ~60 seconds, zero performance impact
 - Environment variable configuration for deployment flexibility
 
-### 4. Data Management
+### 4. System Metrics (Automatic)
+- **Always-on collection** - CPU, memory, goroutines, uptime, health data size
+- **Background monitoring** - runs every minute automatically  
+- **Zero performance impact** - sub-microsecond operation times maintained
+- **Historical storage** - all system metrics persisted for analysis
+
+### 5. Data Management
 - **Retention policies** - configurable data lifecycle  
 - **Backup integration** - event-driven backups following established patterns
 - **Automated cleanup** - background maintenance processes
@@ -86,6 +92,10 @@ state.IncrComponentMetric("database", "queries")
 // Raw value metrics (persisted to storage for analysis)
 state.AddMetric("response_time", 145.2)
 state.AddComponentMetric("cache", "hit_rate", 0.85)
+
+// System metrics are collected automatically in background:
+// - cpu_percent, memory_bytes, health_data_size, goroutines, uptime_seconds
+// - Runs every minute, stored in persistence backend under "system" component
 
 // Export JSON - shows counter metrics only (raw values go to storage)
 json := state.Dump()
@@ -153,6 +163,9 @@ state.IncrComponentMetric("api", "requests")
 // Raw values - persisted only (for historical analysis)
 state.AddMetric("response_time", 142.5)
 state.AddComponentMetric("database", "query_time", 23.1)
+
+// System metrics automatically collected and persisted every minute
+// Available in storage backend under "system" component for monitoring
 
 // Always close gracefully in production
 defer state.Close()
