@@ -152,6 +152,19 @@ HEALTH_BACKUP_DIR="./backups"         # Backup directory
 - `Dump()` - Export current state as JSON
 - `HandleHealthRequest(w, r)` - Handle flexible health URL patterns
 
+## Tutorial
+
+For a complete step-by-step tutorial showing how to build a real application with health metrics, see **[docs/TUTORIAL.md](docs/TUTORIAL.md)**. 
+
+The tutorial walks through building "Doug's Diner" - a restaurant management system that demonstrates:
+- Project structure and file organization
+- Component-based metrics implementation
+- HTTP endpoints with authentication
+- Testing with standard library
+- Production deployment considerations
+
+Perfect for developers new to Go who want to learn both application architecture and metrics integration.
+
 ## Design Philosophy
 
 - **Memory-first performance** - Zero performance impact on applications
