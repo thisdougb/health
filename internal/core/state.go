@@ -1,4 +1,4 @@
-package health
+package core
 
 import (
 	"encoding/json"
@@ -9,26 +9,28 @@ import (
 	"github.com/thisdougb/health/internal/metrics"
 )
 
-// State holds our health data, and calculates rolling average metrics
-// whenever a new data point is added. It is exported to allow JSON
-// access, and is not meant to be manipulated directly.
-type State struct {
+// StateImpl holds our health data, and calculates rolling average metrics
+// whenever a new data point is added. This is the internal implementation.
+type StateImpl struct {
 	Identity           string
 	Started            int64
 	RollingDataSize    int
 	Metrics            map[string]int
 	rollingMetricsData map[string]*metrics.RollingMetric
 	RollingMetrics     map[string]float64
+	mu                 sync.Mutex // writer lock
 }
 
-var mu sync.Mutex // writer lock
+// NewState creates a new state instance
+func NewState() *StateImpl {
+	return &StateImpl{}
+}
 
 // Info method sets the identity string for this metrics instance, and
 // the sample size of for rolling average metrics. The identity string
 // will be in the Dump() output. A unique ID means we can find
 // this node in a k8s cluster, for example.
-func (s *State) Info(identity string, rollingDataSize int) {
-
+func (s *StateImpl) Info(identity string, rollingDataSize int) {
 	defaultIdentity := "identity unset"
 	defaultRollingDataSize := 10
 
@@ -50,31 +52,29 @@ func (s *State) Info(identity string, rollingDataSize int) {
 
 // IncrMetric increments a simple counter metric by one. Metrics start with a zero
 // value, so the very first call to IncrMetric() always results in a value of 1.
-func (s *State) IncrMetric(name string) {
-
+func (s *StateImpl) IncrMetric(name string) {
 	if len(name) < 1 { // no name, no entry
 		return
 	}
 
-	mu.Lock() // enter CRITICAL SECTION
+	s.mu.Lock() // enter CRITICAL SECTION
 	if s.Metrics == nil {
 		s.Metrics = make(map[string]int)
 	}
 
 	s.Metrics[name]++
-	mu.Unlock() // end CRITICAL SECTION
+	s.mu.Unlock() // end CRITICAL SECTION
 }
 
 // UpdateRollingMetric adds data point for this metric, and re-calculates the
 // rolling average metric value. Rolling averages are typical float types, so
 // we expect a float64 type as the data point parameter.
-func (s *State) UpdateRollingMetric(name string, value float64) {
-
+func (s *StateImpl) UpdateRollingMetric(name string, value float64) {
 	if len(name) < 1 { // no name, no entry
 		return
 	}
 
-	mu.Lock() // enter CRITICAL SECTION
+	s.mu.Lock() // enter CRITICAL SECTION
 	_, ok := s.RollingMetrics[name]
 	if !ok {
 		if s.RollingMetrics == nil {
@@ -91,14 +91,13 @@ func (s *State) UpdateRollingMetric(name string, value float64) {
 		s.RollingMetrics = make(map[string]float64)
 	}
 	s.RollingMetrics[name] = newValue
-	mu.Unlock() // end CRITICAL SECTION
+	s.mu.Unlock() // end CRITICAL SECTION
 }
 
 // Dump returns a JSON byte-string.
 // We do not use a reader lock because it is probably unnecessary here,
 // in this scenario.
-func (s *State) Dump() string {
-
+func (s *StateImpl) Dump() string {
 	var dataString string
 
 	data, err := json.MarshalIndent(s, "", "    ")

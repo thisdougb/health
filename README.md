@@ -2,6 +2,11 @@
 
 [![Go Report](https://goreportcard.com/badge/github.com/thisdougb/health)](https://goreportcard.com/badge/github.com/thisdougb/health)
 
+⚠️  **WARNING: BREAKING CHANGES IN PROGRESS**  
+This package is currently undergoing a major refactor to improve the API design. Breaking changes will occur without notice. **Do not use in production** until this warning is removed.
+
+---
+
 A lightweight Go package for tracking and reporting metrics designed for AI-powered analysis. Built for Claude Code to answer complex questions about your application's behavior.
 
 > **Developed with Claude Code** - This project showcases professional-grade software development using AI pair programming with [Claude Code](https://claude.ai/code).
@@ -42,14 +47,14 @@ import (
     "github.com/thisdougb/health"
 )
 
-// Global metrics instance - shared across your application
-var metrics health.State
-
 func main() {
-    // Initialize metrics with a unique service identifier and rolling window size
+    // Create a new health state instance
+    metrics := health.NewState()
+    
+    // Configure with unique service identifier and rolling window size
     // "my-service" helps Claude identify this instance in multi-service environments
     // 10 is the sample size for calculating rolling averages
-    metrics.Info("my-service", 10)
+    metrics.SetConfig("my-service", 10)
     
     http.HandleFunc("/api", handleAPI)
     http.HandleFunc("/health", handleHealth)
@@ -128,7 +133,8 @@ HEALTH_BACKUP_DIR="./backups"         # Backup directory
 ### Core Methods
 
 **Initialization:**
-- `Info(identity, rollingSize)` - Initialize metrics instance
+- `NewState()` - Create new health state instance
+- `SetConfig(identity, rollingSize)` - Configure metrics instance
 
 **Global Metrics:**
 - `IncrMetric(name)` - Increment global counter
