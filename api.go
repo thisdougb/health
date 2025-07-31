@@ -27,7 +27,6 @@ func (s *State) SetConfig(identity string, rollingDataSize int) {
 	s.impl.Info(identity, rollingDataSize)
 }
 
-
 // IncrMetric increments a simple counter metric by one. Metrics start with a zero
 // value, so the very first call to IncrMetric() always results in a value of 1.
 func (s *State) IncrMetric(name string) {
@@ -68,13 +67,10 @@ func (s *State) StatusHandler() http.HandlerFunc {
 
 // IncrComponentMetric increments a counter metric for a specific component
 func (s *State) IncrComponentMetric(component, name string) {
-	// For now, use component prefix with global metrics
-	s.impl.IncrMetric(component + "_" + name)
+	s.impl.IncrComponentMetric(component, name)
 }
 
 // UpdateComponentRollingMetric updates a rolling metric for a specific component
 func (s *State) UpdateComponentRollingMetric(component, name string, value float64) {
-	// For now, use component prefix with global metrics
-	s.impl.UpdateRollingMetric(component+"_"+name, value)
+	s.impl.UpdateComponentRollingMetric(component, name, value)
 }
-

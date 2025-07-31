@@ -12,8 +12,8 @@ func TestInfoMethodSetters(t *testing.T) {
 	identity := "workerXYZ"
 	rDataSize := 5
 
-	var s State
-	s.Info(identity, rDataSize)
+	s := NewState()
+	s.SetConfig(identity, rDataSize)
 	result := s.Dump()
 
 	searchFor := "\"Identity\": \"" + identity + "\","
@@ -35,8 +35,8 @@ func TestInfoMethodSetterDefaults(t *testing.T) {
 	identity := ""
 	rDataSize := 0
 
-	var s State
-	s.Info(identity, rDataSize)
+	s := NewState()
+	s.SetConfig(identity, rDataSize)
 	result := s.Dump()
 
 	searchFor := "\"Identity\": \"identity unset\","
@@ -58,8 +58,8 @@ func TestIncrMetric(t *testing.T) {
 	metricName := "myMetric"
 	metricName2 := "myMetric2"
 
-	var s State
-	s.Info("test", 10)
+	s := NewState()
+	s.SetConfig("test", 10)
 
 	// Test single incr
 	s.IncrMetric(metricName)
@@ -67,7 +67,7 @@ func TestIncrMetric(t *testing.T) {
 	searchFor := "\"" + metricName + "\": 1"
 	searchResult := strings.Index(result, searchFor)
 	if searchResult < 0 {
-		t.Errorf("Metric increment failed")
+		t.Errorf("Metric increment failed. Result: %s", result)
 	}
 
 	// Test second incr on same metric
@@ -94,8 +94,8 @@ func TestIncrMetricIgnoresEmptyName(t *testing.T) {
 	// ignores the incr and sets no value.
 	metricName := ""
 
-	var s State
-	s.Info("test", 10)
+	s := NewState()
+	s.SetConfig("test", 10)
 
 	// Test single incr
 	s.IncrMetric(metricName)
@@ -112,8 +112,8 @@ func TestRollingMetricNewValue(t *testing.T) {
 	metricName := "myRollingMetric"
 	metricValue := 1.0
 
-	var s State
-	s.Info("test", 10)
+	s := NewState()
+	s.SetConfig("test", 10)
 	s.UpdateRollingMetric(metricName, metricValue)
 	result := s.Dump()
 
@@ -131,8 +131,8 @@ func TestMultipleRollingMetrics(t *testing.T) {
 	metricName2 := "myRollingMetric2"
 	metricValue := 1.0
 
-	var s State
-	s.Info("test", 10)
+	s := NewState()
+	s.SetConfig("test", 10)
 	s.UpdateRollingMetric(metricName, metricValue)
 	s.UpdateRollingMetric(metricName2, metricValue)
 	result := s.Dump()

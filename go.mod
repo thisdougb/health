@@ -1,3 +1,3 @@
 module github.com/thisdougb/health
 
-go 1.14
+go 1.23

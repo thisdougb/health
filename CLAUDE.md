@@ -75,8 +75,8 @@ No external testing frameworks are used - standard Go testing only.
 ### Basic Usage (Memory-Only)
 ```go
 // Initialize
-var state health.State
-state.Info("my-app", 10)
+state := health.NewState()
+state.SetConfig("my-app", 10)
 
 // Global metrics
 state.IncrMetric("requests")
@@ -87,9 +87,46 @@ state.IncrComponentMetric("webserver", "requests")
 state.IncrComponentMetric("database", "queries")
 state.UpdateComponentRollingMetric("cache", "hit_rate", 0.85)
 
-// Export JSON
+// Export JSON - new structure groups metrics by component
 json := state.Dump()
 ```
+
+### JSON Output Structure
+
+The package outputs metrics in a component-organized structure designed for easy programmatic consumption:
+
+```json
+{
+    "Identity": "my-app",
+    "Started": 1753959967,
+    "RollingDataSize": 10,
+    "Metrics": {
+        "Global": {
+            "requests": 150
+        },
+        "webserver": {
+            "requests": 100
+        },
+        "database": {
+            "queries": 250
+        }
+    },
+    "RollingMetrics": {
+        "Global": {
+            "response_time": 145.2
+        },
+        "cache": {
+            "hit_rate": 0.85
+        }
+    }
+}
+```
+
+**Key Features:**
+- **Component grouping**: Metrics are organized by component for easy filtering
+- **Global as component**: Global metrics are grouped under "Global" for consistency
+- **Clean naming**: No prefixed metric names - components are used as organizational keys
+- **Computer-friendly**: Optimized for consumption by tools like `jq` and AI systems
 
 ### Web Request Handling
 ```go

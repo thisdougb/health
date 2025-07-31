@@ -27,7 +27,7 @@ Example:
 
 	// Create a new health state instance
 	s := health.NewState()
-	
+
 	// Configure with unique ID and rolling average sample size
 	s.SetConfig("worker-123xyz", 5)
 
@@ -37,16 +37,17 @@ Example:
 
 		// Add data point for rolling average metric
 		s.UpdateRollingMetric("example-avg-metric", float64(i))
-		
+
 		// Component-specific metrics
 		s.IncrComponentMetric("webserver", "requests")
 		s.UpdateComponentRollingMetric("database", "query-time", float64(i*10))
 	}
-	
+
 	// Export as JSON
 	jsonOutput := s.Dump()
 
 Output:
+
 	{
 		"Identity": "worker-123xyz",
 		"Started": 1589108939,

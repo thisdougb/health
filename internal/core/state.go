@@ -15,9 +15,9 @@ type StateImpl struct {
 	Identity           string
 	Started            int64
 	RollingDataSize    int
-	Metrics            map[string]int
+	Metrics            map[string]map[string]int
 	rollingMetricsData map[string]*metrics.RollingMetric
-	RollingMetrics     map[string]float64
+	RollingMetrics     map[string]map[string]float64
 	mu                 sync.Mutex // writer lock
 }
 
@@ -52,45 +52,67 @@ func (s *StateImpl) Info(identity string, rollingDataSize int) {
 
 // IncrMetric increments a simple counter metric by one. Metrics start with a zero
 // value, so the very first call to IncrMetric() always results in a value of 1.
+// This method handles global metrics.
 func (s *StateImpl) IncrMetric(name string) {
+	s.IncrComponentMetric("Global", name)
+}
+
+// IncrComponentMetric increments a counter metric for a specific component
+func (s *StateImpl) IncrComponentMetric(component, name string) {
 	if len(name) < 1 { // no name, no entry
 		return
 	}
 
 	s.mu.Lock() // enter CRITICAL SECTION
 	if s.Metrics == nil {
-		s.Metrics = make(map[string]int)
+		s.Metrics = make(map[string]map[string]int)
+	}
+	if s.Metrics[component] == nil {
+		s.Metrics[component] = make(map[string]int)
 	}
 
-	s.Metrics[name]++
+	s.Metrics[component][name]++
 	s.mu.Unlock() // end CRITICAL SECTION
 }
 
 // UpdateRollingMetric adds data point for this metric, and re-calculates the
 // rolling average metric value. Rolling averages are typical float types, so
 // we expect a float64 type as the data point parameter.
+// This method handles global rolling metrics.
 func (s *StateImpl) UpdateRollingMetric(name string, value float64) {
+	s.UpdateComponentRollingMetric("Global", name, value)
+}
+
+// UpdateComponentRollingMetric updates a rolling metric for a specific component
+func (s *StateImpl) UpdateComponentRollingMetric(component, name string, value float64) {
 	if len(name) < 1 { // no name, no entry
 		return
 	}
 
+	metricKey := component + "_" + name
 	s.mu.Lock() // enter CRITICAL SECTION
-	_, ok := s.RollingMetrics[name]
-	if !ok {
-		if s.RollingMetrics == nil {
-			s.rollingMetricsData = make(map[string]*metrics.RollingMetric)
-		}
-		s.rollingMetricsData[name] = metrics.NewRollingMetric(s.RollingDataSize)
+
+	// Initialize rolling metrics data if needed
+	if s.rollingMetricsData == nil {
+		s.rollingMetricsData = make(map[string]*metrics.RollingMetric)
 	}
 
-	metric := s.rollingMetricsData[name]
+	_, ok := s.rollingMetricsData[metricKey]
+	if !ok {
+		s.rollingMetricsData[metricKey] = metrics.NewRollingMetric(s.RollingDataSize)
+	}
+
+	metric := s.rollingMetricsData[metricKey]
 	newValue := metric.Add(value)
 
-	// update RollingMetrics for nicer json output
+	// update RollingMetrics for json output
 	if s.RollingMetrics == nil {
-		s.RollingMetrics = make(map[string]float64)
+		s.RollingMetrics = make(map[string]map[string]float64)
 	}
-	s.RollingMetrics[name] = newValue
+	if s.RollingMetrics[component] == nil {
+		s.RollingMetrics[component] = make(map[string]float64)
+	}
+	s.RollingMetrics[component][name] = newValue
 	s.mu.Unlock() // end CRITICAL SECTION
 }
 
