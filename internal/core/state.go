@@ -134,6 +134,11 @@ func (s *StateImpl) Dump() string {
 	return dataString
 }
 
+// GetStorageManager returns the storage manager for administrative operations
+func (s *StateImpl) GetStorageManager() *storage.Manager {
+	return s.persistence
+}
+
 // Close gracefully shuts down the state instance and flushes any pending data
 func (s *StateImpl) Close() error {
 	// Stop system metrics collection
