@@ -179,6 +179,16 @@ func (s *SQLiteBackend) Close() error {
 	return nil
 }
 
+// CreateBackup creates a backup of the SQLite database using the existing connection
+// This avoids file locking issues by using the same database connection
+func (s *SQLiteBackend) CreateBackup(config *BackupConfig) error {
+	if s.db == nil {
+		return fmt.Errorf("no database connection available")
+	}
+
+	return BackupHealthDatabase(s.db, config)
+}
+
 // Helper functions for environment variable parsing
 
 func getEnv(key, defaultValue string) string {

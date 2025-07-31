@@ -6,12 +6,21 @@ import (
 	"time"
 )
 
+// BackupConfig holds backup-specific configuration
+type BackupConfig struct {
+	Enabled        bool
+	BackupDir      string
+	RetentionDays  int
+	BackupInterval time.Duration
+}
+
 // Config holds all configuration options for the persistence system
 type Config struct {
 	Enabled       bool
 	DBPath        string
 	FlushInterval time.Duration
 	BatchSize     int
+	Backup        BackupConfig
 }
 
 // LoadConfig loads configuration from environment variables
@@ -22,6 +31,12 @@ func LoadConfig() (*Config, error) {
 		DBPath:        "/tmp/health.db",
 		FlushInterval: 60 * time.Second,
 		BatchSize:     100,
+		Backup: BackupConfig{
+			Enabled:        false,
+			BackupDir:      "/data/backups/health",
+			RetentionDays:  30,
+			BackupInterval: 24 * time.Hour,
+		},
 	}
 
 	// HEALTH_PERSISTENCE_ENABLED - Enable/disable persistence
@@ -53,6 +68,30 @@ func LoadConfig() (*Config, error) {
 			config.BatchSize = size
 		}
 		// Invalid size keeps default
+	}
+
+	// HEALTH_BACKUP_ENABLED - Enable/disable backup functionality
+	if enabledStr := os.Getenv("HEALTH_BACKUP_ENABLED"); enabledStr != "" {
+		config.Backup.Enabled = (enabledStr == "true")
+	}
+
+	// HEALTH_BACKUP_DIR - Backup directory path
+	if backupDir := os.Getenv("HEALTH_BACKUP_DIR"); backupDir != "" {
+		config.Backup.BackupDir = backupDir
+	}
+
+	// HEALTH_BACKUP_RETENTION_DAYS - How long to keep backups
+	if retentionStr := os.Getenv("HEALTH_BACKUP_RETENTION_DAYS"); retentionStr != "" {
+		if days, err := time.ParseDuration(retentionStr + "h"); err == nil {
+			config.Backup.RetentionDays = int(days.Hours() / 24)
+		}
+	}
+
+	// HEALTH_BACKUP_INTERVAL - How often to create backups  
+	if intervalStr := os.Getenv("HEALTH_BACKUP_INTERVAL"); intervalStr != "" {
+		if interval, err := time.ParseDuration(intervalStr); err == nil {
+			config.Backup.BackupInterval = interval
+		}
 	}
 
 	return config, nil

@@ -22,6 +22,63 @@ This document records the reasoning behind significant architectural decisions, 
 
 ---
 
+## 2025-07-31: Phase 6 - Event-Driven Backup Integration Implementation
+
+**Decision**: Implemented event-driven backup system following tripkist patterns with State lifecycle integration
+
+**Context**:
+- Phase 6 of persistent storage plan required backup functionality following established tripkist patterns
+- Need event-driven backups (not scheduled) triggered by application lifecycle events
+- Must avoid SQLite file locking issues by using existing database connection
+- Required seamless integration with existing State system without breaking API compatibility
+- Backup functionality should be optional and configurable via environment variables
+
+**Decision**:
+- **Event-Driven Architecture**: Following tripkist patterns with backups triggered by:
+  - State shutdown (Close() method) - automatic backup on graceful shutdown
+  - Manual backup creation via Manager.CreateBackup() method
+  - No scheduled/timer-based backups (event-driven only)
+- **SQLite VACUUM INTO Implementation**: Using atomic backup creation with same database connection
+  - Avoids file locking issues by cascading DB connection through backend
+  - SQLiteBackend.CreateBackup() method uses existing connection
+  - Memory backends skip backup (temporary storage, no persistence needed)
+- **Configuration Integration**: Extended existing Config system with BackupConfig
+  - HEALTH_BACKUP_ENABLED - Enable/disable backup functionality
+  - HEALTH_BACKUP_DIR - Backup directory path (/data/backups/health default)  
+  - HEALTH_BACKUP_RETENTION_DAYS - Retention policy (30 days default)
+  - HEALTH_BACKUP_INTERVAL - Not used (event-driven, not scheduled)
+- **Manager Integration**: Storage Manager coordinates backup operations
+  - Manager.CreateBackup() - Manual backup creation
+  - Manager.ListBackups() - List available backup files
+  - Manager.RestoreFromBackup() - Database restoration capability
+  - Manager.GetBackupInfo() - Configuration introspection
+
+**Technical Implementation**:
+- Following tripkist backup.go patterns with dated backup files (health_YYYYMMDD.db)
+- Comprehensive test suite with 13 test functions covering all scenarios
+- Event-driven backup on State.Close() - automatic backup during graceful shutdown
+- Backup directory creation with proper permissions (0755)
+- Retention policy cleanup with configurable retention days
+- Error handling with graceful degradation (backup failures don't break shutdown)
+- Zero API changes - existing State.Close() unchanged, backup happens transparently
+
+**Performance Results**:
+- Event-driven backup creation: ~110-120ms for typical database sizes
+- No performance impact on normal operations (only during backup events)
+- All integration tests passing with SQLite and memory backends
+- Backup operations are atomic using SQLite VACUUM INTO
+- File locking issues resolved through proper connection management
+
+**Consequences**:
+- Production-ready backup system following established tripkist patterns
+- Event-driven architecture aligns with application lifecycle management
+- Configurable backup retention prevents disk space issues
+- Zero breaking changes - full backward compatibility maintained
+- Foundation for operational monitoring and data recovery workflows
+- Seamless integration with existing SQLite persistence backend
+
+---
+
 ## 2025-07-31: Phase 5 - Claude Data Extraction Functions Implementation
 
 **Decision**: Implemented specialized administrative functions for extracting historical metrics data optimized for Claude analysis

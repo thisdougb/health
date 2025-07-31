@@ -7,8 +7,9 @@ import (
 
 // Manager coordinates persistence operations between the State system and storage backends
 type Manager struct {
-	backend Backend
-	enabled bool
+	backend      Backend
+	enabled      bool
+	backupConfig BackupConfig
 }
 
 // NewManager creates a new persistence manager
@@ -52,10 +53,13 @@ func NewManagerFromConfig() (*Manager, error) {
 		backend = NewMemoryBackend()
 	}
 
-	return &Manager{
-		backend: backend,
-		enabled: true,
-	}, nil
+	manager := &Manager{
+		backend:      backend,
+		enabled:      true,
+		backupConfig: config.Backup,
+	}
+
+	return manager, nil
 }
 
 // PersistMetric persists a single metric if persistence is enabled
@@ -104,6 +108,11 @@ func (m *Manager) ListComponents() ([]string, error) {
 
 // Close gracefully shuts down the persistence manager and flushes any pending data
 func (m *Manager) Close() error {
+	// Event-driven backup on shutdown
+	if m.backupConfig.Enabled && m.enabled && m.backend != nil {
+		_ = m.createBackupInternal() // Best effort, don't fail on error during shutdown
+	}
+
 	if !m.enabled || m.backend == nil {
 		return nil // Nothing to close
 	}
@@ -114,4 +123,49 @@ func (m *Manager) Close() error {
 // IsEnabled returns whether persistence is enabled
 func (m *Manager) IsEnabled() bool {
 	return m.enabled
+}
+
+// CreateBackup creates a backup of the health database (event-driven)
+// Following tripkist backup patterns with event-driven triggers
+func (m *Manager) CreateBackup() error {
+	return m.createBackupInternal()
+}
+
+// createBackupInternal handles the backup creation using the backend's database connection
+func (m *Manager) createBackupInternal() error {
+	if !m.backupConfig.Enabled || !m.enabled || m.backend == nil {
+		return nil // Backup disabled or no backend
+	}
+
+	// Only SQLite backends support backup (memory backends are temporary)
+	sqliteBackend, ok := m.backend.(*SQLiteBackend)
+	if !ok {
+		return nil // Memory backend, no backup needed
+	}
+
+	// Use the SQLite backend's internal backup method to avoid file locking
+	return sqliteBackend.CreateBackup(&m.backupConfig)
+}
+
+// ListBackups returns available backup files
+func (m *Manager) ListBackups() ([]string, error) {
+	if !m.backupConfig.Enabled {
+		return nil, fmt.Errorf("backup not enabled")
+	}
+	
+	return ListHealthBackups(&m.backupConfig)
+}
+
+// RestoreFromBackup restores database from specified backup file
+func (m *Manager) RestoreFromBackup(backupFileName string, targetDBPath string) error {
+	if !m.backupConfig.Enabled {
+		return fmt.Errorf("backup not enabled")
+	}
+	
+	return RestoreHealthDatabase(backupFileName, targetDBPath, &m.backupConfig)
+}
+
+// GetBackupInfo returns backup configuration information
+func (m *Manager) GetBackupInfo() map[string]interface{} {
+	return GetBackupRetentionInfo(&m.backupConfig)
 }

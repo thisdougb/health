@@ -154,7 +154,7 @@ http.HandleFunc("/health/", func(w http.ResponseWriter, r *http.Request) {
 })
 ```
 
-### Production with Persistence
+### Production with Persistence and Backup
 
 **Important: SQLite requires CGO compilation**
 
@@ -175,11 +175,14 @@ CGO_ENABLED=0 go build -o bin/myapp main.go
 ```
 
 ```go
-// Enable SQLite persistence via environment variables
+// Enable SQLite persistence and event-driven backups via environment variables
 // HEALTH_PERSISTENCE_ENABLED=true
 // HEALTH_DB_PATH="/data/health.db"
 // HEALTH_FLUSH_INTERVAL="60s"  
 // HEALTH_BATCH_SIZE="100"
+// HEALTH_BACKUP_ENABLED=true
+// HEALTH_BACKUP_DIR="/data/backups/health"
+// HEALTH_BACKUP_RETENTION_DAYS="30"
 
 state := health.NewState() // Automatically uses env config
 state.SetConfig("production-app")
@@ -195,7 +198,10 @@ state.AddComponentMetric("database", "query_time", 23.1)
 // System metrics automatically collected and persisted every minute
 // Available in storage backend under "system" component for monitoring
 
-// Always close gracefully in production
+// Event-driven backup - automatically happens on graceful shutdown
+// Also available manually: state.GetStorageManager().CreateBackup()
+
+// Always close gracefully in production (triggers backup if enabled)
 defer state.Close()
 ```
 
