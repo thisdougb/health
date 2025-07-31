@@ -13,20 +13,33 @@ This is a Go package for tracking and reporting metrics in containerized applica
 
 ## Core Architecture
 
-The package consists of two main components:
+The package is organized by core capabilities:
 
-1. **State struct** (`health.go`): The main metrics container that holds:
-   - Simple counter metrics (incremented via `IncrMetric()`)
-   - Rolling average metrics (updated via `UpdateRollingMetric()`)
-   - Thread-safe operations using mutex locks around writes
+### 1. Data Methods (Core Metrics Recording)
+- **Global metrics**: `IncrMetric()`, `UpdateRollingMetric()` - system-wide counters and averages
+- **Component metrics**: `IncrComponentMetric()`, `UpdateComponentRollingMetric()` - organized by application component
+- Thread-safe operations using mutex protection around writes
 
-2. **rollingMetric struct** (`rolling_metric.go`): Implements circular buffer logic for calculating rolling averages over a configurable window size
+### 2. Data Access (Web Request Handling)  
+- `HandleHealthRequest()` - flexible URL pattern handling with external router compatibility
+- Component-specific endpoints: `/health/{component}`, `/health/{component}/status`
+- JSON serializable output via `Dump()` method
+
+### 3. Storage Models
+- **Memory-only** (current) - fast, volatile, ideal for development
+- **SQLite persistence** - background sync every ~60 seconds, zero performance impact
+- Environment variable configuration for deployment flexibility
+
+### 4. Data Management
+- **Retention policies** - configurable data lifecycle  
+- **Backup integration** - event-driven backups following established patterns
+- **Automated cleanup** - background maintenance processes
 
 Key design principles:
-- Thread-safe metric updates with mutex protection around writes
-- JSON serializable output via `Dump()` method
-- No rate calculations (consumers handle rates over time)
-- Configurable rolling window sizes for average calculations
+- Memory-first approach for zero performance impact
+- Component-based organization for complex systems
+- External router compatibility (nginx, Kubernetes ingress)
+- Go's idiomatic patterns with separate methods for type safety
 
 ## Development Commands
 
@@ -62,11 +75,44 @@ No external testing frameworks are used - standard Go testing only.
 
 ## Package Usage Pattern
 
-Typical usage involves:
-1. Initialize with `Info(identity, rollingDataSize)`
-2. Increment counters with `IncrMetric(name)`
-3. Update rolling metrics with `UpdateRollingMetric(name, value)`
-4. Export JSON with `Dump()` for HTTP health endpoints
+### Basic Usage (Memory-Only)
+```go
+// Initialize
+var state health.State
+state.Info("my-app", 10)
+
+// Global metrics
+state.IncrMetric("requests")
+state.UpdateRollingMetric("response_time", 145.2)
+
+// Component-based metrics  
+state.IncrComponentMetric("webserver", "requests")
+state.IncrComponentMetric("database", "queries")
+state.UpdateComponentRollingMetric("cache", "hit_rate", 0.85)
+
+// Export JSON
+json := state.Dump()
+```
+
+### Web Request Handling
+```go
+// Flexible URL pattern support
+http.HandleFunc("/health/", func(w http.ResponseWriter, r *http.Request) {
+    if !authenticated(r) {
+        http.Error(w, "Unauthorized", 401)
+        return
+    }
+    state.HandleHealthRequest(w, r) // Handles all /health/* patterns
+})
+```
+
+### Production with Persistence
+```go
+// Enable SQLite persistence via environment variable
+// HEALTH_PERSISTENCE_ENABLED=true
+// HEALTH_DB_PATH="/data/health.db"
+// HEALTH_FLUSH_INTERVAL="60s"
+```
 
 ## Development Workflow
 

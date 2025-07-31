@@ -6,14 +6,15 @@
 
 ## Executive Summary
 
-This document outlines the transition of the health package from a good idea to a production-grade metrics application. The current package provides basic functionality, but production requirements demand rigorous engineering practice.
+This document outlines the health package architecture, organized by core capabilities:
 
-The enhanced package will serve two primary use cases:
+### Package Definition
+1. **Data Methods** - Core metrics recording (`IncrMetric`, `UpdateRollingMetric` + component variants)
+2. **Data Access** - Web request handling with flexible URL patterns (`HandleHealthRequest`)
+3. **Storage Models** - Memory-only, SQLite persistence, or hybrid approaches
+4. **Data Management** - Retention policies, backup integration, and automated cleanup
 
-1. **Real-time monitoring endpoints** for external monitoring services to detect system issues
-2. **Claude-optimized analysis endpoints** providing rich contextual data for AI-powered interpretation
-
-This transition maintains backward compatibility while adding SQLite persistence, event-driven backups, configurable alerting, and component-specific health monitoring - transforming a simple library into a robust production monitoring solution.
+This structure keeps the core simple (record metrics, access via web) while enabling optional persistence and management features for production deployments.
 
 ---
 
@@ -29,53 +30,300 @@ This transition maintains backward compatibility while adding SQLite persistence
 ### Enhancement Requirements
 - **Persistent Storage**: SQLite backend for historical metrics
 - **Real-time Monitoring**: Endpoints for external monitoring services
-- **Alert Management**: Configurable thresholds and alert states
+- **Health Status Management**: Configurable thresholds and status determination
 - **Component Health**: Individual component monitoring (database, providers, etc.)
 - **Claude Integration**: Rich contextual data for AI analysis
 - **Backup Integration**: Event-driven backups for data persistence
 
 ---
 
-## Feature Specifications
+## Package Architecture
 
-### 1. Real-Time Monitoring Endpoints
+### 1. Data Methods (Core Metrics Recording)
 
-#### Core Health Endpoints
-```
-GET /health/service/status          - Simple UP/DOWN (200/503 responses)
-GET /health/alerts/status          - Current alert level: ok|warning|critical  
-GET /health/alerts/summary         - Structured alert data for monitoring services
-GET /health/alerts/components      - Per-component health status
-```
+**Purpose:** Simple, thread-safe metrics recording with optional component organization.
 
-#### Component-Specific Health Checks
-```
-GET /health/database/status        - Database operations health
-GET /health/backup/status          - Backup system health
-GET /health/performance/status     - Performance-based alerts
-GET /health/errors/status          - Error rate monitoring
-GET /health/capacity/status        - System capacity monitoring
+#### Global Metrics
+```go
+// Basic counter metrics (existing)
+healthState.IncrMetric("requests")
+healthState.IncrMetric("errors")
+
+// Rolling average metrics (existing)  
+healthState.UpdateRollingMetric("response_time", 145.2)
+healthState.UpdateRollingMetric("memory_usage", 1024.5)
 ```
 
-#### Alert Data Structure
+#### Component-Based Metrics
+```go
+// Component-specific counters
+healthState.IncrComponentMetric("webserver", "requests") 
+healthState.IncrComponentMetric("database", "queries")
+healthState.IncrComponentMetric("cache", "hits")
+
+// Component-specific rolling averages
+healthState.UpdateComponentRollingMetric("webserver", "response_time", 125.3)
+healthState.UpdateComponentRollingMetric("database", "query_time", 45.7)
+healthState.UpdateComponentRollingMetric("cache", "hit_rate", 0.85)
+```
+
+#### API Design Rationale
+**The Challenge:** Go doesn't support mixed variadic parameters cleanly.
+
+**Solution:** Separate methods for global and component-specific metrics:
+- Type safety and clear intent
+- Maintains Go's idiomatic patterns  
+- Backward compatibility with existing `IncrMetric()`
+- Enables component organization for complex systems
+
+### 2. Data Access (Web Request Handling)
+
+**Purpose:** Flexible web endpoints for accessing metrics data with external router compatibility.
+
+#### Core Request Handler
+```go
+func (s *State) HandleHealthRequest(w http.ResponseWriter, r *http.Request)
+```
+
+**Design Driver:** Enable external routers (nginx, HAProxy, Kubernetes ingress) to route health endpoints to different services while the health package consistently processes everything after `/health/` pattern.
+
+
+**Developer Usage Pattern:**
+```go
+// Any prefix supported - health package processes from /health/ onwards
+http.HandleFunc("/health/", healthHandler)                           // Standard
+http.HandleFunc("/api/v1/health/", v1HealthHandler)                 // API versioning  
+http.HandleFunc("/services/user-service/health/", userHealthHandler) // Service-specific
+http.HandleFunc("/admin/monitoring/health/", adminHealthHandler)     // Admin namespace
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+    if !authenticated(r) {
+        http.Error(w, "Unauthorized", 401)
+        return  
+    }
+    state.HandleHealthRequest(w, r) // Health package handles everything after /health/
+}
+```
+
+**URL Processing Logic:**
+- Function searches for `/health/` pattern in URL path using `strings.Index(r.URL.Path, "/health/")`
+- Extracts subpath from position after `/health/` 
+- Routes based on subpath: `""` → all metrics, `"status"` → UP/DOWN, `"metrics"` → alias
+- Parses query parameters for filtering: `?metrics=logins,errors`
+
+**Supported URL Patterns (any prefix):**
+```
+{any-prefix}/health/                       - All current metrics (JSON dump)
+{any-prefix}/health/status                 - Overall health status (200/503 responses)
+{any-prefix}/health/metrics                - Alias for all metrics
+{any-prefix}/health/{component}            - Specific component metrics
+{any-prefix}/health/{component}/status     - Component health status (200/503)
+{any-prefix}/health/?components=db,cache   - Filtered by components
+{any-prefix}/health/status/summary         - Structured health status data
+```
+
+**External Router Benefits:**
+```nginx
+# nginx can route different services to different nodes
+location /serviceA/health/ { proxy_pass http://service-a-cluster; }
+location /serviceB/health/ { proxy_pass http://service-b-cluster; }
+location /api/v1/health/ { proxy_pass http://api-v1-cluster; }
+```
+
+**Kubernetes Ingress Support:**
+```yaml
+rules:
+- http:
+    paths:
+    - path: /serviceA/health/
+      backend: { service: { name: service-a } }
+    - path: /serviceB/health/  
+      backend: { service: { name: service-b } }
+```
+
+#### Component-Based Health Checks
+**Dynamic component support - developers define their own components:**
+```
+{any-prefix}/health/database            - Database component metrics
+{any-prefix}/health/database/status     - Database health status (200/503)
+{any-prefix}/health/webserver           - Webserver component metrics  
+{any-prefix}/health/webserver/status    - Webserver health status (200/503)
+{any-prefix}/health/cache               - Cache component metrics
+{any-prefix}/health/cache/status        - Cache health status (200/503)
+```
+
+**Component-Based Metrics API:**
+```go
+// Current API (still supported)
+healthState.IncrMetric("requests")
+
+// New component-based API
+healthState.IncrComponentMetric("webserver", "requests")
+healthState.IncrComponentMetric("database", "queries")
+healthState.UpdateComponentRollingMetric("cache", "hit_rate", 0.85)
+```
+
+#### API Design Rationale: Global vs Component Metrics
+
+**The Challenge:** Go doesn't support mixed variadic parameters in a way that makes function signatures clean and easy to work with.
+
+**Design Decision:** Separate methods for global and component-specific metrics:
+
+```go
+// Global metrics (system-wide, no specific component)
+healthState.IncrMetric("total_requests")
+healthState.IncrMetric("startup_time") 
+healthState.UpdateRollingMetric("memory_usage", 1024.5)
+
+// Component-specific metrics  
+healthState.IncrComponentMetric("webserver", "requests")
+healthState.IncrComponentMetric("database", "queries")
+healthState.UpdateComponentRollingMetric("cache", "hit_rate", 0.85)
+```
+
+**Why not `IncrMetric("requests", "webserver")`?**
+- Go doesn't allow clean optional parameters in variadic functions
+- Would require interface{} parameters or complex overloading
+- Separate methods provide type safety and clear intent
+- API remains simple and predictable
+
+**URL Pattern Support:**
+- Global metrics: `{prefix}/health/` → shows all metrics
+- Component metrics: `{prefix}/health/webserver` → shows webserver metrics only
+- Component status: `{prefix}/health/webserver/status` → webserver health status
+
+**Backward Compatibility:**
+- Existing `IncrMetric()` usage unchanged
+- New component methods are additive
+- Same JSON output structure, organized by component
+
+This design maintains Go's idiomatic patterns while enabling component organization for complex systems.
+
+### 3. Storage Models (Data Persistence)
+
+**Purpose:** Choose appropriate storage backend based on deployment requirements.
+
+#### Memory-Only Model (Current)
+```go
+// Current implementation - fast but volatile
+var state health.State
+state.Info("my-app", 10)
+state.IncrMetric("requests")
+// Data lost on restart
+```
+
+**Characteristics:**
+- ✅ Fast performance (no I/O overhead)
+- ✅ Simple deployment (no external dependencies)
+- ✅ Rapid development cycle (no database setup required)
+- ✅ Easy testing (clean state on each test run)
+- ❌ Data lost on application restart
+- ❌ No historical analysis capability
+
+**Development Workflow Benefits:**
+- Use memory-only during development for speed
+- Enable persistence via environment variable in production
+- Same codebase works in both modes without changes
+
+#### SQLite Persistence Model
+```go
+// Memory-first with background SQLite persistence
+var state health.State
+state.InitWithPersistence("health.db", PersistenceConfig{
+    FlushInterval: "60s",    // Background sync every minute
+    RetentionDays: 30,
+})
+state.IncrComponentMetric("database", "queries")
+// Fast writes to memory, background persistence to SQLite
+```
+
+**Characteristics:**
+- ✅ Zero performance impact on application (memory-first)
+- ✅ Data survives application restarts
+- ✅ Historical metrics for analysis
+- ✅ Non-blocking background persistence (Go routines)
+- ✅ Single-file deployment simplicity
+- ❌ Potential data loss between sync intervals (configurable risk)
+
+**Design Principle:**
+- All metric operations remain memory-only for speed
+- Background Go routine syncs to SQLite every ~60 seconds
+- No I/O blocking on metric recording
+- Application performance completely unaffected
+
+### 4. Data Management (Lifecycle Features)
+
+**Purpose:** Automated data lifecycle management for production deployments.
+
+#### Retention Policies
+```go
+type RetentionConfig struct {
+    MaxDays    int  `default:"30"`    // Keep data for 30 days
+    MaxSize    int  `default:"100"`   // Max 100MB database size
+    AutoClean  bool `default:"true"`  // Automatic cleanup
+}
+```
+
+#### Backup Integration
+```go
+// Event-driven backups following established patterns
+type BackupConfig struct {
+    Enabled           bool   `default:"true"`
+    RetentionDays     int    `default:"30"`
+    BackupDir         string `default:"/data/backups/health"`
+    TriggerThreshold  int    `default:"1000"` // Metrics count
+}
+
+// Backup triggers
+// - After daily metric aggregation
+// - After critical health status changes
+// - After configuration updates
+// - After bulk metric ingestion
+```
+
+#### Automated Cleanup
+```go
+// Background cleanup processes
+func (s *State) StartCleanupScheduler() {
+    // Remove metrics older than retention period
+    // Compress historical data
+    // Manage database size limits
+    // Archive old backups
+}
+```
+
+#### Health Status Data Structure
 ```json
 {
   "timestamp": "2025-01-15T10:30:00Z",
-  "alert_level": "warning|critical|ok",
-  "alerts": [
-    {
-      "component": "database",
-      "severity": "warning", 
-      "reason": "slow query performance",
-      "metric": "query_duration_ms",
-      "current_value": 1500,
-      "threshold": 1000,
-      "duration_minutes": 15,
-      "first_detected": "2025-01-15T10:15:00Z"
+  "health_status": "healthy|degraded|critical",
+  "components": {
+    "database": {
+      "status": "degraded",
+      "metrics": {
+        "queries": 1250,
+        "query_duration_avg_ms": 1500
+      },
+      "issues": [
+        {
+          "severity": "warning",
+          "reason": "slow query performance", 
+          "metric": "query_duration_avg_ms",
+          "current_value": 1500,
+          "threshold": 1000
+        }
+      ]
+    },
+    "webserver": {
+      "status": "healthy",
+      "metrics": {
+        "requests": 5420,
+        "response_time_avg_ms": 150
+      },
+      "issues": []
     }
-  ],
-  "healthy_components": ["backup", "performance", "errors"],
-  "system_status": "degraded"
+  },
+  "overall_status": "degraded"
 }
 ```
 
@@ -85,7 +333,7 @@ GET /health/capacity/status        - System capacity monitoring
 ```
 GET /health/claude/analyze                    - Full system analysis
 GET /health/claude/diagnose/{component}       - Component-specific diagnosis  
-GET /health/claude/recommendations           - Suggested actions based on alerts
+GET /health/claude/recommendations           - Suggested actions based on health status
 GET /health/claude/incident-report           - Detailed incident context
 GET /health/claude/trends?period=24h         - Trend analysis data
 GET /health/claude/compare?baseline=7d&current=24h - Comparative analysis
@@ -114,7 +362,7 @@ GET /health/claude/compare?baseline=7d&current=24h - Comparative analysis
     "daily_active_users": 34,
     "processed_requests": 89
   },
-  "current_alerts": [...],
+  "current_issues": [...],
   "recent_changes": [
     "Large data batch processed 15 minutes ago",
     "New user signup spike detected",
@@ -152,7 +400,7 @@ CREATE TABLE metrics (
 );
 
 -- Alert state management  
-CREATE TABLE alerts (
+CREATE TABLE health_issues (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     component TEXT NOT NULL,
     metric_name TEXT NOT NULL,
@@ -175,7 +423,7 @@ CREATE TABLE schema_version (
 -- Indexes for performance
 CREATE INDEX idx_metrics_node_time ON metrics(node_name, timestamp);
 CREATE INDEX idx_metrics_component ON metrics(component, timestamp);
-CREATE INDEX idx_alerts_active ON alerts(status, component) WHERE status = 'active';
+CREATE INDEX idx_health_issues_active ON health_issues(status, component) WHERE status = 'active';
 ```
 
 #### Backup Integration Functions
@@ -191,7 +439,7 @@ func GetBackupStatus() BackupStatus
 
 #### Event-Driven Backup Triggers
 - **Daily metric rollover**: Backup after daily aggregation
-- **Alert state changes**: Backup after critical alerts resolved
+- **Health status changes**: Backup after critical issues resolved
 - **Bulk metric ingestion**: Backup after large metric batches
 - **Configuration changes**: Backup after threshold updates
 
@@ -199,34 +447,34 @@ func GetBackupStatus() BackupStatus
 
 #### Configurable Alert Thresholds
 ```go
-type AlertThresholds struct {
-    // Performance alerts  
+type HealthThresholds struct {
+    // Performance thresholds  
     DayProcessingMaxMs         int     `default:"3000"`
     APIResponseTimeMaxMs       int     `default:"1000"`
     DatabaseQueryMaxMs         int     `default:"500"`
     BackupDurationMaxMs        int     `default:"30000"`
     
-    // Error rate alerts (percentages)
+    // Error rate thresholds (percentages)
     EmailFailureRateMax        float64 `default:"5.0"`
     TripDetectionErrorMax      float64 `default:"2.0"`
     ProviderErrorRateMax       float64 `default:"10.0"`
     BackupFailureRateMax       float64 `default:"1.0"`
     
-    // Capacity alerts
+    // Capacity thresholds
     ActiveUsersMax             int     `default:"1000"`
     ConcurrentRequestsMax      int     `default:"100"`
     DatabaseConnectionsMax     int     `default:"50"`
     
-    // External service alerts
+    // External service thresholds
     MapboxRateLimitBuffer      int     `default:"1000"`  // API calls remaining
     StripeWebhookDelayMaxMin   int     `default:"15"`    // Processing delay
     SendGridQuotaBufferPct     float64 `default:"10.0"`  // Quota remaining %
 }
 ```
 
-#### Alert State Management
+#### Health Status Management
 ```go
-type AlertState struct {
+type HealthIssue struct {
     Component      string    `json:"component"`
     MetricName     string    `json:"metric_name"`
     Severity       string    `json:"severity"`      // warning, critical
@@ -239,12 +487,12 @@ type AlertState struct {
     Status         string    `json:"status"`        // active, resolved
 }
 
-// Alert management functions
-func TriggerAlert(component, severity, reason string, currentValue, threshold float64)
-func ResolveAlert(component, metricName string)
-func EscalateAlert(alertID int, newSeverity string)
-func GetActiveAlerts() []AlertState
-func GetAlertHistory(component string, since time.Time) []AlertState
+// Health status management functions
+func ReportHealthIssue(component, severity, reason string, currentValue, threshold float64)
+func ResolveHealthIssue(component, metricName string)
+func EscalateHealthIssue(issueID int, newSeverity string)
+func GetActiveHealthIssues() []HealthIssue
+func GetHealthHistory(component string, since time.Time) []HealthIssue
 ```
 
 ### 5. Enhanced Metric Types
@@ -318,18 +566,18 @@ func (s *State) GetMetricSummary(timeRange string) (MetricSummary, error)
 
 4. **Core Health Endpoints**
    - [ ] `/health/service/status` - Simple UP/DOWN
-   - [ ] `/health/alerts/status` - Current alert level
+   - [ ] `/health/status/summary` - Current health status
    - [ ] Basic HTTP status code responses (200/503)
    - [ ] JSON response formatting
 
 ### Phase 2: Alert System and Component Health (Week 2)  
 **Priority: P0 - Critical for Launch**
 
-5. **Alert Management**
-   - [ ] Alert threshold configuration system
-   - [ ] Alert state tracking in SQLite
-   - [ ] Alert triggering and resolution logic
-   - [ ] Alert escalation based on duration
+5. **Health Status Management**
+   - [ ] Health threshold configuration system
+   - [ ] Health status tracking in SQLite
+   - [ ] Health issue detection and resolution logic
+   - [ ] Health issue escalation based on duration
 
 6. **Component Health Checks**
    - [ ] `/health/tripengine/status` - Trip processing health
@@ -338,10 +586,10 @@ func (s *State) GetMetricSummary(timeRange string) (MetricSummary, error)
    - [ ] `/health/database/status` - Database operations health
 
 7. **Real-time Monitoring**
-   - [ ] Structured alert data endpoints
+   - [ ] Structured health status data endpoints
    - [ ] Component-specific health status
    - [ ] Performance threshold monitoring
-   - [ ] Error rate calculations and alerts
+   - [ ] Error rate calculations and health status
 
 8. **Configuration Management**
    - [ ] Environment variable configuration
@@ -368,7 +616,7 @@ func (s *State) GetMetricSummary(timeRange string) (MetricSummary, error)
     - [ ] Trend analysis over time periods
     - [ ] Comparative analysis (baseline vs current)
     - [ ] Anomaly detection algorithms
-    - [ ] Historical context for alerts
+    - [ ] Historical context for health issues
 
 12. **Documentation and Testing**
     - [ ] Comprehensive API documentation
@@ -394,39 +642,44 @@ curl -I https://example.com/health/service/status
 
 #### Alert Status Check
 ```bash
-# Returns current alert level
-curl https://example.com/health/alerts/status
+# Returns current health status
+curl https://example.com/health/status/summary
 
 # Response:
 {
-  "alert_level": "warning",
-  "active_alert_count": 2,
-  "critical_alert_count": 0,
+  "health_status": "degraded",
+  "active_issue_count": 2,
+  "critical_issue_count": 0,
   "system_status": "degraded"
 }
 ```
 
-#### Detailed Alert Information
+#### Detailed Health Status Information
 ```bash
-# Returns full alert details
-curl https://example.com/health/alerts/summary
+# Returns full health status details
+curl https://example.com/health/status/summary
 
 # Response:
 {
   "timestamp": "2025-01-15T10:30:00Z",
-  "alert_level": "warning",
-  "alerts": [
-    {
-      "component": "tripengine",
-      "severity": "warning",
-      "reason": "slow day summary update",
-      "metric": "day_processing_duration_ms",
-      "current_value": 5500,
-      "threshold": 3000,
-      "duration_minutes": 15
-    }
-  ],
-  "healthy_components": ["wahoo", "strava", "mapbox"],
+  "health_status": "degraded",
+  "components": {
+    "tripengine": {
+      "status": "degraded",
+      "issues": [
+        {
+          "severity": "warning",
+          "reason": "slow day summary update",
+          "metric": "day_processing_duration_ms",
+          "current_value": 5500,
+          "threshold": 3000,
+          "duration_minutes": 15
+        }
+      ]
+    },
+    "wahoo": {"status": "healthy", "issues": []},
+    "strava": {"status": "healthy", "issues": []}
+  },
   "system_status": "degraded"
 }
 ```
@@ -445,7 +698,7 @@ curl https://example.com/health/database/status
     "connection_success_rate": 98.5,
     "query_success_rate": 95.2
   },
-  "alerts": [
+  "issues": [
     {
       "severity": "warning",
       "reason": "processing time above threshold",
@@ -463,7 +716,7 @@ curl https://example.com/health/database/status
 curl https://example.com/health/claude/analyze
 
 # Response includes:
-# - Current alerts with full context
+# - Current health issues with full context
 # - Recent system changes and events
 # - Performance trends and anomalies
 # - Business metrics and user impact
@@ -556,7 +809,7 @@ type BackupConfig struct {
 
 // Backup trigger events (following established patterns)
 // - After daily metric aggregation
-// - After critical alert resolution  
+// - After critical health issue resolution  
 // - After configuration changes
 // - After bulk metric ingestion
 ```
@@ -627,20 +880,20 @@ func TestHealthMetrics(t *testing.T) {
     assert.Equal(t, 42.0, metrics["test_gauge"])
 }
 
-func TestAlertManagement(t *testing.T) {
-    // Test alert triggering and resolution
+func TestHealthStatusManagement(t *testing.T) {
+    // Test health issue detection and resolution
     state := &State{}
     state.InitWithBackup("test.db", BackupConfig{})
     
-    // Trigger alert
-    state.TriggerAlert("test_component", "warning", "test alert", 100, 50)
-    alerts := state.GetActiveAlerts()
-    assert.Len(t, alerts, 1)
+    // Report health issue
+    state.ReportHealthIssue("test_component", "warning", "test issue", 100, 50)
+    issues := state.GetActiveHealthIssues()
+    assert.Len(t, issues, 1)
     
-    // Resolve alert  
-    state.ResolveAlert("test_component", "test_metric")
-    alerts = state.GetActiveAlerts()
-    assert.Len(t, alerts, 0)
+    // Resolve health issue  
+    state.ResolveHealthIssue("test_component", "test_metric")
+    issues = state.GetActiveHealthIssues()
+    assert.Len(t, issues, 0)
 }
 ```
 
@@ -745,7 +998,7 @@ fmt.Println(s.Dump())                                           // Still works
 - [ ] **Configuration**: All thresholds configurable via environment variables
 
 ### Operational Metrics
-- **Alert Accuracy**: <5% false positive rate for critical alerts
+- **Health Status Accuracy**: <5% false positive rate for critical health issues
 - **Response Time**: Monitoring endpoints respond within 100ms
 - **Storage Efficiency**: SQLite database growth <10MB/month for typical usage
 - **Backup Success**: 99.5% backup success rate with automatic recovery
@@ -757,14 +1010,14 @@ fmt.Println(s.Dump())                                           // Still works
 
 ### Advanced Analytics
 - Machine learning-based anomaly detection
-- Predictive alerting based on trend analysis
+- Predictive health status detection based on trend analysis
 - Capacity planning recommendations
 - Seasonal pattern recognition
 
 ### Extended Integration
-- Webhook notifications for critical alerts
+- Webhook notifications for critical health issues
 - Integration with external incident management systems
-- Custom alert rules engine
+- Custom health status rules engine
 - Multi-tenant monitoring for service providers
 
 ### Performance Optimization
@@ -779,7 +1032,7 @@ fmt.Println(s.Dump())                                           // Still works
 
 This enhancement plan transforms the lightweight health package into a comprehensive monitoring solution tailored for modern application architecture and operational needs. The phased approach ensures minimal disruption while delivering critical monitoring capabilities for launch readiness.
 
-The combination of real-time monitoring endpoints and Claude-optimized analysis provides both automated alerting and intelligent system insights, enabling proactive issue resolution and informed operational decisions.
+The combination of real-time monitoring endpoints and Claude-optimized analysis provides both automated health status reporting and intelligent system insights, enabling proactive issue resolution and informed operational decisions.
 
 **Key Success Factors:**
 - Maintain simplicity and performance of original package

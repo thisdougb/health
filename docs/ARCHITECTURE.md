@@ -2,30 +2,90 @@
 
 ## Overview
 
-The health package provides a simple, thread-safe metrics collection system designed for containerized applications. It focuses on two types of metrics: simple counters and rolling averages, with JSON serialization for HTTP health endpoints.
+The health package provides a simple, thread-safe metrics collection system designed for containerized applications. The package is organized by core capabilities:
+
+1. **Data Methods** - Core metrics recording (global and component-based)
+2. **Data Access** - Web request handling with flexible URL patterns
+3. **Storage Models** - Memory-only or SQLite persistence with background sync
+4. **Data Management** - Retention policies, backup integration, and automated cleanup
 
 ## Core Components
 
-### State Struct (`health.go`)
+### 1. Data Methods (Metrics Recording)
 
-The `State` struct is the primary interface for metrics collection:
+#### State Struct (`health.go`)
+
+The `State` struct is the primary interface for metrics collection, now supporting both global and component-based metrics:
 
 ```go
 type State struct {
     Identity           string                    // Instance identifier
     Started            int64                     // Unix timestamp of initialization
     RollingDataSize    int                       // Sample size for rolling averages
-    Metrics            map[string]int            // Simple counter metrics
+    Metrics            map[string]int            // Global counter metrics
+    ComponentMetrics   map[string]map[string]int // Component-based counter metrics
     rollingMetricsData map[string]*rollingMetric // Internal rolling metric storage
     RollingMetrics     map[string]float64        // Rolling average values for JSON output
 }
 ```
 
+#### Metric Recording Methods
+
+**Global Metrics (existing):**
+```go
+func (s *State) IncrMetric(name string)                    // System-wide counters
+func (s *State) UpdateRollingMetric(name string, value float64) // System-wide averages
+```
+
+**Component-Based Metrics (new):**
+```go
+func (s *State) IncrComponentMetric(component, name string)     // Component counters
+func (s *State) UpdateComponentRollingMetric(component, name string, value float64) // Component averages
+```
+
 **Key Design Decisions**:
-- **Public JSON fields**: Identity, Started, RollingDataSize, Metrics, RollingMetrics are exported for JSON serialization
+- **Component organization**: Metrics organized by application component for complex systems
+- **API design rationale**: Separate methods (`IncrComponentMetric`) vs variadic parameters due to Go limitations
+- **Backward compatibility**: Existing `IncrMetric()` unchanged, new methods are additive
+- **Public JSON fields**: All metric maps exported for JSON serialization
 - **Private internal storage**: rollingMetricsData is unexported to prevent direct manipulation
 - **Thread-safe operations**: All write operations protected by global mutex
 - **Zero-value initialization**: Maps are created lazily on first use
+
+### 2. Data Access (Web Request Handling)
+
+#### HandleHealthRequest Method
+
+```go
+func (s *State) HandleHealthRequest(w http.ResponseWriter, r *http.Request)
+```
+
+**URL Pattern Processing:**
+- Searches for `/health/` pattern in URL path
+- Processes everything after `/health/` regardless of prefix
+- Routes to component-specific data or overall health status
+- Enables external router compatibility (nginx, Kubernetes ingress)
+
+**Supported URL Patterns:**
+- `{prefix}/health/` → All metrics (JSON dump)
+- `{prefix}/health/status` → Overall health status (200/503)
+- `{prefix}/health/{component}` → Component-specific metrics
+- `{prefix}/health/{component}/status` → Component health status
+
+### 3. Storage Models
+
+#### Memory-Only Model (Current)
+- Fast performance with no I/O overhead
+- Ideal for development (no database setup required)
+- Data lost on application restart
+- Clean state for testing
+
+#### SQLite Persistence Model (Enhanced)
+- Memory-first approach for zero performance impact
+- Background Go routine syncs every ~60 seconds
+- No blocking I/O on metric recording operations
+- Single-file deployment simplicity
+- Historical metrics for analysis
 
 ### Rolling Metric Implementation (`rolling_metric.go`)
 

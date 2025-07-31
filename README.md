@@ -23,12 +23,13 @@ Instead of staring at dashboards, ask Claude questions about your application:
 
 ## Features
 
-- **Zero dependencies** - Pure in-memory metrics by default
+- **Component-based organization** - Organize metrics by application component
+- **Zero dependencies** - Pure in-memory metrics by default  
 - **Schema-less metrics** - Create metrics on-demand with any name
 - **Thread-safe** - Safe for concurrent use across goroutines
-- **Claude Code optimized** - SQL queryable storage for AI analysis
-- **Pluggable storage** - Optional SQLite, InfluxDB, or custom backends
-- **Embeddable first** - Library, not service architecture
+- **External router compatible** - Works with nginx, Kubernetes ingress
+- **Memory-first persistence** - Optional SQLite with zero performance impact
+- **Development-friendly** - No database setup required for development
 
 ## Quick Start
 
@@ -56,23 +57,26 @@ func main() {
 }
 
 func handleAPI(w http.ResponseWriter, r *http.Request) {
-    // Schema-less metrics - no pre-definition needed, created on first use
+    // Global metrics (system-wide)
+    metrics.IncrMetric("total-requests") 
+    metrics.UpdateRollingMetric("memory-usage", 1024.5)
     
-    // Simple counters: increment by 1 each time
-    metrics.IncrMetric("user-signups")    // Tracks total signups
-    metrics.IncrMetric("api-requests")    // Tracks total API calls
-    
-    // Rolling averages: tracks recent values for trend analysis
-    metrics.UpdateRollingMetric("response-time", 245.0)  // Current response time in ms
-    metrics.UpdateRollingMetric("cpu-usage", 67.2)       // Current CPU percentage
+    // Component-based metrics (organized by application component)
+    metrics.IncrComponentMetric("webserver", "requests")
+    metrics.IncrComponentMetric("database", "queries")
+    metrics.UpdateComponentRollingMetric("webserver", "response-time", 245.0)
+    metrics.UpdateComponentRollingMetric("cache", "hit-rate", 0.85)
     
     // Your API logic here...
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
-    // Export current metrics as JSON for monitoring systems or Claude Code analysis
-    w.Header().Set("Content-Type", "application/json")
-    fmt.Fprintf(w, "%s\n", metrics.Dump())
+    // Flexible health endpoint handling
+    if !authenticated(r) {
+        http.Error(w, "Unauthorized", 401)
+        return
+    }
+    metrics.HandleHealthRequest(w, r) // Handles all /health/* patterns
 }
 ```
 
@@ -89,56 +93,62 @@ export HEALTH_SQLITE_FILE=./metrics.db
 go run main.go
 ```
 
-**Claude Code can now analyze patterns by requesting raw metric data:**
-- Request metrics for specific names over time periods
-- Claude interprets the raw data to answer complex questions
-- No complex queries needed - simple data retrieval with time ranges
+**External Router Compatibility:**
+- nginx: Route `/serviceA/health/` to different backend clusters
+- Kubernetes ingress: Different paths to different services  
+- Load balancers: Component-specific health routing
 
-## Storage Backends
+## Storage Models
 
-| Backend | Status | Claude Integration |
-|---------|--------|--------------------|
-| In-Memory | ✅ Default | Current state only |
-| SQLite | ✅ Available | Full historical analysis |
-| InfluxDB | 🚧 Planned | Time-series queries |
-| Prometheus | 🚧 Planned | Metrics ecosystem |
-| CloudWatch | 🚧 Planned | AWS integration |
+| Model | Performance | Persistence | Use Case |
+|-------|-------------|-------------|----------|
+| Memory-Only | Fastest | None | Development, testing |
+| SQLite Background | Fast | Full | Production with history |
+
+**Memory-First Design**: All metric operations use memory for speed. Optional SQLite persistence runs in background Go routines with zero performance impact on your application.
 
 ## Configuration
 
 All configuration via environment variables with sensible defaults:
 
 ```bash
-# Storage backend (default: in-memory only)
-HEALTH_STORAGE=sqlite|influxdb|prometheus
+# Persistence (default: memory-only)
+HEALTH_PERSISTENCE_ENABLED=true       # Enable SQLite persistence
+HEALTH_DB_PATH="./health.db"          # Database file path
+HEALTH_FLUSH_INTERVAL="60s"           # Background sync interval
 
-# SQLite specific (optimized for Claude Code queries)
-HEALTH_SQLITE_FILE=./health.db        # Database file path
-HEALTH_BATCH_SIZE=100                 # Batch write size
-HEALTH_BATCH_INTERVAL_MS=1000         # Batch write interval
-
-# Enable WAL mode for better concurrency (default: true)
-HEALTH_WAL_ENABLED=true
+# Data management
+HEALTH_RETENTION_DAYS=30              # Keep data for 30 days
+HEALTH_BACKUP_ENABLED=true            # Enable backups
+HEALTH_BACKUP_DIR="./backups"         # Backup directory
 ```
 
 ## API Reference
 
 ### Core Methods
-- `Info(identity, rollingSize)` - Initialize metrics instance
-- `IncrMetric(name)` - Increment counter metric
-- `UpdateRollingMetric(name, value)` - Add data point to rolling average
-- `Dump()` - Export current state as JSON
 
-### Claude Code Integration Methods (when storage enabled)
-- `GetMetrics(names, startTime, endTime, granularity)` - Retrieve raw metric data
-- `ExportData(since)` - Export metrics since timestamp
+**Initialization:**
+- `Info(identity, rollingSize)` - Initialize metrics instance
+
+**Global Metrics:**
+- `IncrMetric(name)` - Increment global counter
+- `UpdateRollingMetric(name, value)` - Update global rolling average
+
+**Component-Based Metrics:**
+- `IncrComponentMetric(component, name)` - Increment component counter
+- `UpdateComponentRollingMetric(component, name, value)` - Update component rolling average
+
+**Data Access:**
+- `Dump()` - Export current state as JSON
+- `HandleHealthRequest(w, r)` - Handle flexible health URL patterns
 
 ## Design Philosophy
 
-- **AI-first interface** - Built for Claude Code analysis, not human dashboards
-- **Simple data retrieval** - Endpoints return metrics for `{name1, name2}` by `{startTime, endTime, granularity}`
-- **Claude interprets complexity** - No clever queries or optimizations, just raw data blocks for AI analysis
-- **Embeddable first** - Library, not service architecture
+- **Memory-first performance** - Zero performance impact on applications
+- **Component-based organization** - Structure metrics by application components
+- **External router compatible** - Works with nginx, Kubernetes ingress routing
+- **Development-friendly** - No database setup required for development
+- **Production-ready persistence** - Optional SQLite with background sync
+- **Go idioms** - Separate methods for type safety (no complex variadic parameters)
 - **Progressive enhancement** - Add features without breaking simplicity
-- **Graceful degradation** - Falls back to in-memory if storage fails
 - **Zero breaking changes** - Existing code continues to work unchanged

@@ -22,6 +22,45 @@ This document records the reasoning behind significant architectural decisions, 
 
 ---
 
+## 2025-07-31: Component-Based Metrics Architecture
+
+**Decision**: Introduced component-based metrics API alongside existing global metrics
+
+**Context**:
+- Health package needed better organization for complex applications with multiple components
+- External router compatibility (nginx, Kubernetes ingress) required flexible URL patterns
+- Go's variadic parameter limitations prevented clean mixed parameter APIs
+- Need to maintain backward compatibility with existing `IncrMetric()` usage
+
+**Decision**:
+- **API Design**: Added separate methods for component-based metrics:
+  - `IncrComponentMetric(component, name string)` for component counters
+  - `UpdateComponentRollingMetric(component, name string, value float64)` for component averages
+- **URL Pattern Support**: Implemented `HandleHealthRequest()` with flexible routing:
+  - `{prefix}/health/` → All metrics (any prefix supported)
+  - `{prefix}/health/{component}` → Component-specific metrics
+  - `{prefix}/health/{component}/status` → Component health status
+- **Storage Models**: Defined three approaches:
+  - Memory-only (current) - fast, ideal for development
+  - SQLite persistence - background sync every ~60 seconds, zero performance impact
+  - Configuration via environment variables for deployment flexibility
+- **Data Management**: Added retention policies, backup integration, automated cleanup
+
+**Technical Implementation**:
+- Separate methods vs variadic parameters due to Go limitations
+- External router compatibility for microservice architectures  
+- Memory-first approach with optional background persistence
+- Component organization in JSON output structure
+
+**Consequences**:
+- Enables component-based organization for complex systems
+- Maintains backward compatibility (existing code unchanged)
+- Supports modern microservice deployment patterns
+- Zero performance impact with memory-first design
+- Clear development-to-production workflow (env var configuration)
+
+---
+
 ## 2025-07-30: Project Documentation Structure
 
 **Decision**: Created docs directory and DECISION_LOG.md to track architectural decisions
