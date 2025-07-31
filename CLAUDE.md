@@ -55,9 +55,6 @@ go test -run TestFunctionName
 # Run tests with verbose output
 go test -v
 
-# Build (check compilation)
-go build
-
 # Get dependencies
 go mod tidy
 

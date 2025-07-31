@@ -47,15 +47,19 @@ import (
     "github.com/thisdougb/health"
 )
 
-func main() {
+var metrics *health.State
+
+func init() {
     // Create a new health state instance
-    metrics := health.NewState()
+    metrics = health.NewState()
     
     // Configure with unique service identifier and rolling window size
     // "my-service" helps Claude identify this instance in multi-service environments
     // 10 is the sample size for calculating rolling averages
     metrics.SetConfig("my-service", 10)
-    
+}
+
+func main() {
     http.HandleFunc("/api", handleAPI)
     http.HandleFunc("/health", handleHealth)
     http.ListenAndServe(":8080", nil)
