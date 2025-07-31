@@ -2,6 +2,35 @@
 
 This tutorial shows you how to build a complete Go application with integrated health metrics. We'll create Doug's Diner, a restaurant management system, step by step. This is perfect for developers new to Go who want to learn both application structure and metrics integration.
 
+## Ask Claude - The End Result
+
+The real power of this metrics system is how easy it becomes to understand your application. Instead of staring at pages of graphs, you can simply ask Claude to analyze your metrics:
+
+```
+> ok, we just implemented metrics. see the doc for how to query metrics in production.  can you give me a summary
+
+**Summary Analysis:**
+
+**System Status:**
+- Service: `dougs-diner` 
+- Started: 1753961879 (Unix timestamp)
+- Rolling data window: 10 samples
+
+**Customer Service Activity:**
+- **Admin Operations**: 1 response sent, 1 review listed, 1 title updated
+- **AI Integration**: 1 AI-assisted interaction (likely automated review response)
+- **Customer Activity**: 1 review created, 2 reviews retrieved
+
+**Performance Metrics (Rolling Averages):**
+- **Admin Operations**: Excellent performance (0-1.2ms response times)
+- **Review Operations**: Sub-millisecond performance (0.4-1ms)
+- **System Efficiency**: 0.2 reviews per page average, 0.3 reviews per customer
+
+The metrics show the customer service system is performing well with fast response times and recent admin activity, indicating healthy review management operations.
+```
+
+This is what we're building toward - metrics that Claude can instantly understand and analyze for you.
+
 ## What You'll Build
 
 By the end of this tutorial, you'll have a working restaurant management system that tracks business metrics like order processing times, customer reviews, and system performance.
