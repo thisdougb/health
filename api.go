@@ -68,6 +68,16 @@ func (s *State) StatusHandler() http.HandlerFunc {
 	return handlers.StatusHandler(s.impl)
 }
 
+// HandleHealthRequest handles flexible health URL patterns directly
+// This method allows integration with custom routing and middleware
+// Supports: /health/, /health/status, /health/{component}, /health/{component}/status
+func (s *State) HandleHealthRequest(w http.ResponseWriter, r *http.Request) {
+	// For now, delegate to the basic health handler
+	// This can be extended later to support component-specific routing
+	handler := s.HealthHandler()
+	handler(w, r)
+}
+
 // Component-based metrics
 
 // IncrComponentMetric increments a counter metric for a specific component
@@ -78,6 +88,12 @@ func (s *State) IncrComponentMetric(component, name string) {
 // AddComponentMetric records a raw metric value for a specific component
 func (s *State) AddComponentMetric(component, name string, value float64) {
 	s.impl.AddMetric(component, name, value)
+}
+
+// GetStorageManager returns the storage manager for administrative operations
+// This enables access to backup, restore, and data extraction functions
+func (s *State) GetStorageManager() *storage.Manager {
+	return s.impl.GetStorageManager()
 }
 
 // Close gracefully shuts down the health state and flushes any pending data

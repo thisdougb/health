@@ -80,10 +80,10 @@ func LoadConfig() (*Config, error) {
 		config.Backup.BackupDir = backupDir
 	}
 
-	// HEALTH_BACKUP_RETENTION_DAYS - How long to keep backups
+	// HEALTH_BACKUP_RETENTION_DAYS - How long to keep backups (in days)
 	if retentionStr := os.Getenv("HEALTH_BACKUP_RETENTION_DAYS"); retentionStr != "" {
-		if days, err := time.ParseDuration(retentionStr + "h"); err == nil {
-			config.Backup.RetentionDays = int(days.Hours() / 24)
+		if days, err := strconv.Atoi(retentionStr); err == nil && days >= 0 {
+			config.Backup.RetentionDays = days
 		}
 	}
 

@@ -169,3 +169,19 @@ func (m *Manager) RestoreFromBackup(backupFileName string, targetDBPath string) 
 func (m *Manager) GetBackupInfo() map[string]interface{} {
 	return GetBackupRetentionInfo(&m.backupConfig)
 }
+
+// ForceFlush immediately flushes any queued metrics to storage (for testing)
+func (m *Manager) ForceFlush() error {
+	if !m.enabled || m.backend == nil {
+		return nil // Nothing to flush
+	}
+	
+	// Only SQLite backend has a queue to flush
+	sqliteBackend, ok := m.backend.(*SQLiteBackend)
+	if !ok {
+		return nil // Memory backend, no queue to flush
+	}
+	
+	// Force flush the queue
+	return sqliteBackend.queue.ForceFlush()
+}

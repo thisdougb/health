@@ -288,6 +288,341 @@ defer state.Close()
 - ✅ **Performance optimized**: Sub-microsecond to microsecond response times
 - ✅ **Structured JSON**: Perfect for programmatic analysis and AI processing
 
+## Configuration Guide for Junior Developers
+
+### Environment Variables Reference
+
+The health package uses environment variables for configuration to enable zero-code deployment changes. This section provides detailed explanations for junior developers.
+
+#### Basic Persistence Configuration
+```bash
+# Enable SQLite persistence (default: false - uses memory only)
+# When false: All data is stored in memory and lost on restart
+# When true: Raw values are persisted to SQLite, counters remain in memory
+export HEALTH_PERSISTENCE_ENABLED=true
+
+# SQLite database file path (required when persistence enabled)
+# This file will be created automatically if it doesn't exist
+# Use absolute paths in production to avoid issues with working directory changes
+export HEALTH_DB_PATH=/data/health.db
+
+# How often to flush data from memory queue to SQLite (default: 60s)
+# Shorter intervals: Less data loss if application crashes, but more I/O
+# Longer intervals: Better performance, but potential data loss on crash
+export HEALTH_FLUSH_INTERVAL=30s
+
+# How many metrics to batch together before writing to SQLite (default: 100)
+# Higher values: Better write performance, uses more memory
+# Lower values: Less memory usage, more frequent disk writes
+export HEALTH_BATCH_SIZE=50
+```
+
+#### Backup Configuration
+```bash
+# Enable automatic backups (default: false)
+# Backups are event-driven (not scheduled) - triggered by graceful shutdown
+export HEALTH_BACKUP_ENABLED=true
+
+# Directory where backup files are stored (default: ./backups)
+# Directory will be created automatically if it doesn't exist
+# Use absolute paths in production environments
+export HEALTH_BACKUP_DIR=/data/backups/health
+
+# How many days to keep backup files (default: 30)
+# Older backups are automatically deleted to prevent disk space issues
+export HEALTH_BACKUP_RETENTION_DAYS=7
+```
+
+### Configuration Examples by Environment
+
+#### Development Environment (Local Machine)
+```bash
+# Minimal configuration for development
+# Uses memory-only storage for fast iteration and clean state between runs
+
+# No environment variables needed - memory backend is default
+# Simply use: state := NewState()
+
+# For testing persistence features during development:
+export HEALTH_PERSISTENCE_ENABLED=true
+export HEALTH_DB_PATH=/tmp/health_dev.db
+export HEALTH_FLUSH_INTERVAL=1s  # Fast flush for immediate feedback
+```
+
+#### Testing Environment (CI/CD)
+```bash
+# Configuration for automated testing
+# Uses temporary files that are cleaned up automatically
+
+export HEALTH_PERSISTENCE_ENABLED=true
+export HEALTH_DB_PATH=/tmp/health_test_${BUILD_NUMBER}.db
+export HEALTH_FLUSH_INTERVAL=100ms  # Very fast for test speed
+export HEALTH_BATCH_SIZE=10         # Small batches for test predictability
+
+# Backup testing
+export HEALTH_BACKUP_ENABLED=true
+export HEALTH_BACKUP_DIR=/tmp/health_test_backups_${BUILD_NUMBER}
+export HEALTH_BACKUP_RETENTION_DAYS=1  # Short retention for testing
+```
+
+#### Staging Environment (Pre-Production)
+```bash
+# Configuration that mirrors production but with more aggressive settings
+# for testing production scenarios
+
+export HEALTH_PERSISTENCE_ENABLED=true
+export HEALTH_DB_PATH=/var/lib/health/staging.db
+export HEALTH_FLUSH_INTERVAL=30s    # More frequent than production
+export HEALTH_BATCH_SIZE=50         # Smaller than production for faster feedback
+
+# Backup configuration
+export HEALTH_BACKUP_ENABLED=true
+export HEALTH_BACKUP_DIR=/var/lib/health/backups
+export HEALTH_BACKUP_RETENTION_DAYS=7  # Shorter retention than production
+```
+
+#### Production Environment (Live System)
+```bash
+# Production configuration optimized for performance and reliability
+
+export HEALTH_PERSISTENCE_ENABLED=true
+export HEALTH_DB_PATH=/data/health/production.db
+export HEALTH_FLUSH_INTERVAL=60s    # Standard interval balances performance and data safety
+export HEALTH_BATCH_SIZE=100        # Larger batches for better write performance
+
+# Production backup configuration
+export HEALTH_BACKUP_ENABLED=true
+export HEALTH_BACKUP_DIR=/data/backups/health
+export HEALTH_BACKUP_RETENTION_DAYS=30  # Keep monthly backups
+
+# Additional production considerations:
+# - Ensure /data/health directory has proper permissions
+# - Set up monitoring for disk space in backup directory
+# - Consider backup directory on separate disk/mount for safety
+```
+
+### Docker Configuration Examples
+
+#### Docker Compose for Development
+```yaml
+version: '3.8'
+services:
+  myapp:
+    build: .
+    environment:
+      # Memory-only for development
+      HEALTH_PERSISTENCE_ENABLED: "false"
+    volumes:
+      - ./data:/data  # Optional: for testing persistence
+```
+
+#### Docker Compose for Production
+```yaml
+version: '3.8'
+services:
+  myapp:
+    build: .
+    environment:
+      HEALTH_PERSISTENCE_ENABLED: "true"
+      HEALTH_DB_PATH: "/data/health.db"
+      HEALTH_FLUSH_INTERVAL: "60s"
+      HEALTH_BATCH_SIZE: "100"
+      HEALTH_BACKUP_ENABLED: "true"
+      HEALTH_BACKUP_DIR: "/data/backups"
+      HEALTH_BACKUP_RETENTION_DAYS: "30"
+    volumes:
+      - health_data:/data
+      - health_backups:/data/backups
+    restart: unless-stopped
+
+volumes:
+  health_data:
+    driver: local
+  health_backups:
+    driver: local
+```
+
+### Kubernetes Configuration Examples
+
+#### Development Namespace
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myapp-dev
+  template:
+    metadata:
+      labels:
+        app: myapp-dev
+    spec:
+      containers:
+      - name: myapp
+        image: myapp:latest
+        env:
+        # Memory-only for development
+        - name: HEALTH_PERSISTENCE_ENABLED
+          value: "false"
+```
+
+#### Production Namespace
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-prod
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: myapp-prod
+  template:
+    metadata:
+      labels:
+        app: myapp-prod
+    spec:
+      containers:
+      - name: myapp
+        image: myapp:latest
+        env:
+        - name: HEALTH_PERSISTENCE_ENABLED
+          value: "true"
+        - name: HEALTH_DB_PATH
+          value: "/data/health.db"
+        - name: HEALTH_FLUSH_INTERVAL
+          value: "60s"
+        - name: HEALTH_BATCH_SIZE
+          value: "100"
+        - name: HEALTH_BACKUP_ENABLED
+          value: "true"
+        - name: HEALTH_BACKUP_DIR
+          value: "/data/backups"
+        - name: HEALTH_BACKUP_RETENTION_DAYS
+          value: "30"
+        volumeMounts:
+        - name: health-data
+          mountPath: /data
+      volumes:
+      - name: health-data
+        persistentVolumeClaim:
+          claimName: myapp-health-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: myapp-health-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+```
+
+### Common Configuration Mistakes and Solutions
+
+#### Mistake 1: Forgetting CGO for SQLite
+```bash
+# Wrong: This will fail if SQLite persistence is enabled
+CGO_ENABLED=0 go build -o myapp main.go
+
+# Correct: Enable CGO for SQLite support
+CGO_ENABLED=1 go build -o myapp main.go
+
+# For cross-compilation (Linux from macOS):
+CC="zig cc -target x86_64-linux" CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build
+```
+
+#### Mistake 2: Using Relative Paths in Production
+```bash
+# Wrong: Relative paths can cause issues when working directory changes
+export HEALTH_DB_PATH=./data/health.db
+export HEALTH_BACKUP_DIR=./backups
+
+# Correct: Always use absolute paths in production
+export HEALTH_DB_PATH=/data/health.db
+export HEALTH_BACKUP_DIR=/data/backups
+```
+
+#### Mistake 3: Invalid Duration Formats
+```bash
+# Wrong: These will be ignored and default values used
+export HEALTH_FLUSH_INTERVAL=60        # Missing unit
+export HEALTH_FLUSH_INTERVAL="1 minute" # Invalid format
+
+# Correct: Use Go duration format
+export HEALTH_FLUSH_INTERVAL=60s       # 60 seconds
+export HEALTH_FLUSH_INTERVAL=1m        # 1 minute
+export HEALTH_FLUSH_INTERVAL=30s       # 30 seconds
+```
+
+#### Mistake 4: Insufficient Disk Space Planning
+```bash
+# Wrong: No monitoring of backup directory growth
+export HEALTH_BACKUP_RETENTION_DAYS=365  # Too long for most use cases
+
+# Correct: Plan backup retention based on disk space and requirements
+export HEALTH_BACKUP_RETENTION_DAYS=30   # Monthly retention (30 days)
+# Plus: Set up monitoring for backup directory disk usage
+```
+
+#### Mistake 5: Backup Configuration Parsing
+```bash
+# Wrong: Setting retention days to 0 (causes immediate cleanup)
+export HEALTH_BACKUP_RETENTION_DAYS=0    # Backups deleted immediately!
+
+# Correct: Set positive integer for days to retain backups
+export HEALTH_BACKUP_RETENTION_DAYS=7    # Keep for 7 days
+export HEALTH_BACKUP_RETENTION_DAYS=30   # Keep for 30 days
+
+# Note: Value must be a positive integer (days), not a duration format
+```
+
+### Configuration Validation
+
+#### How to Verify Your Configuration
+```go
+// Add this to your application startup to verify configuration
+func main() {
+    state := NewState()
+    defer state.Close()
+    
+    state.SetConfig("myapp-production")
+    
+    // Test basic functionality
+    state.IncrMetric("startup_test")
+    state.AddMetric("config_test", 123.45)
+    
+    // Verify JSON output works
+    json := state.Dump()
+    if json == "" {
+        log.Fatal("Health configuration failed - no JSON output")
+    }
+    
+    log.Println("Health package configured successfully")
+    log.Printf("Configuration: %s", json)
+}
+```
+
+#### Environment Variable Debugging
+```bash
+# Print all health-related environment variables for debugging
+env | grep HEALTH
+
+# Expected output for production:
+# HEALTH_PERSISTENCE_ENABLED=true
+# HEALTH_DB_PATH=/data/health.db
+# HEALTH_FLUSH_INTERVAL=60s
+# HEALTH_BATCH_SIZE=100
+# HEALTH_BACKUP_ENABLED=true
+# HEALTH_BACKUP_DIR=/data/backups
+# HEALTH_BACKUP_RETENTION_DAYS=30
+```
+
 ## Development Workflow
 
 ### Branch Management

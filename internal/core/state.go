@@ -120,9 +120,12 @@ func (s *StateImpl) AddGlobalMetric(name string, value float64) {
 }
 
 // Dump returns a JSON byte-string.
-// We do not use a reader lock because it is probably unnecessary here,
-// in this scenario.
+// Uses mutex protection to prevent race conditions during concurrent access.
+// This ensures thread safety when reading metrics while writes are happening.
 func (s *StateImpl) Dump() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	var dataString string
 
 	data, err := json.MarshalIndent(s, "", "    ")
