@@ -196,41 +196,31 @@ http.HandleFunc("/health/system/timeseries", state.TimeSeriesHandler("system"))
 **Query Examples:**
 ```bash
 # Look back 2 hours with 5-minute aggregation windows
-curl "http://localhost:8080/health/webserver/timeseries?window=5m&lookback=2h"
+curl "https://myapp.com/health/webserver/timeseries?window=5m&lookback=2h"
 
 # Analyze specific time period (great for incident analysis)
-curl "http://localhost:8080/health/database/timeseries?window=1m&lookback=1h&date=2025-01-15&time=14:30:00"
+curl "https://myapp.com/health/database/timeseries?window=1m&lookback=1h&date=2025-01-15&time=14:30:00"
 
 # Forward-looking analysis (prediction scenarios)
-curl "http://localhost:8080/health/system/timeseries?window=10s&lookahead=30m"
+curl "https://myapp.com/health/system/timeseries?window=10s&lookahead=30m"
 
 # Different time formats supported
-curl "http://localhost:8080/health/api/timeseries?window=30s&lookback=4h&time=09:15"
+curl "https://myapp.com/health/api/timeseries?window=30s&lookback=4h&time=09:15"
 ```
 
 **Response Format:**
 ```json
 {
   "component": "webserver",
-  "window": "5m0s",
-  "direction": "lookback",
-  "duration": "2h0m0s", 
   "start_time": "2025-01-15T08:00:00Z",
   "end_time": "2025-01-15T10:00:00Z",
   "reference_time": "2025-01-15T10:00:00Z",
+  "request_params": {"window": "5m", "lookback": "2h", "date": "2025-01-15", "time": "10:00:00"},
   "metrics": {
-    "requests_per_sec": {
-      "08:00:00": 125.5,
-      "08:05:00": 142.3,
-      "08:10:00": 156.7,
-      "08:15:00": 148.2
-    },
-    "response_time": {
-      "08:00:00": 45.2,
-      "08:05:00": 52.1,
-      "08:10:00": 48.7,
-      "08:15:00": 51.3
-    }
+    "http_requests": {"08:00:00": 1250, "08:05:00": 1423, "08:10:00": 1567, "08:15:00": 1482},
+    "response_time_ms": {"08:00:00": 45.2, "08:05:00": 52.1, "08:10:00": 48.7, "08:15:00": 51.3},
+    "error_rate": {"08:00:00": 0.12, "08:05:00": 0.08, "08:10:00": 0.15, "08:15:00": 0.09},
+    "active_connections": {"08:00:00": 127, "08:05:00": 143, "08:10:00": 156, "08:15:00": 148}
   }
 }
 ```

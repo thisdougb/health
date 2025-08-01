@@ -26,16 +26,23 @@ type TimeSeriesParams struct {
 	Time      *time.Time
 }
 
+// RequestParams represents the original query parameters from the request
+type RequestParams struct {
+	Window    string `json:"window,omitempty"`
+	Lookback  string `json:"lookback,omitempty"`
+	Lookahead string `json:"lookahead,omitempty"`
+	Date      string `json:"date,omitempty"`
+	Time      string `json:"time,omitempty"`
+}
+
 // TimeSeriesResponse represents aggregated time series data
 type TimeSeriesResponse struct {
-	Component   string                 `json:"component"`
-	Window      string                 `json:"window"`
-	Direction   string                 `json:"direction"`
-	Duration    string                 `json:"duration"`
-	StartTime   time.Time              `json:"start_time"`
-	EndTime     time.Time              `json:"end_time"`
-	ReferenceTime time.Time            `json:"reference_time"`
-	Metrics     map[string]interface{} `json:"metrics"`
+	Component     string                 `json:"component"`
+	StartTime     time.Time              `json:"start_time"`
+	EndTime       time.Time              `json:"end_time"`
+	ReferenceTime time.Time              `json:"reference_time"`
+	RequestParams RequestParams          `json:"request_params"`
+	Metrics       map[string]interface{} `json:"metrics"`
 }
 
 // HealthHandler returns an HTTP handler that serves health metrics as JSON
@@ -101,18 +108,13 @@ func TimeSeriesHandler(state StateInterface, component string) http.HandlerFunc 
 
 		// Calculate time range
 		var startTime, endTime time.Time
-		var direction, duration string
 
 		if params.Lookback != nil {
 			startTime = referenceTime.Add(-*params.Lookback)
 			endTime = referenceTime
-			direction = "lookback"
-			duration = params.Lookback.String()
 		} else {
 			startTime = referenceTime
 			endTime = referenceTime.Add(*params.Lookahead)
-			direction = "lookahead"
-			duration = params.Lookahead.String()
 		}
 
 		// Read metrics from storage
@@ -125,15 +127,30 @@ func TimeSeriesHandler(state StateInterface, component string) http.HandlerFunc 
 		// Aggregate metrics by window
 		aggregatedMetrics := aggregateMetricsByWindow(metrics, params.Window)
 
+		// Build request params from original query parameters  
+		requestParams := RequestParams{
+			Window: r.URL.Query().Get("window"),
+		}
+		if params.Lookback != nil {
+			requestParams.Lookback = r.URL.Query().Get("lookback")
+		}
+		if params.Lookahead != nil {
+			requestParams.Lookahead = r.URL.Query().Get("lookahead")
+		}
+		if dateStr := r.URL.Query().Get("date"); dateStr != "" {
+			requestParams.Date = dateStr
+		}
+		if timeStr := r.URL.Query().Get("time"); timeStr != "" {
+			requestParams.Time = timeStr
+		}
+
 		// Build response
 		response := TimeSeriesResponse{
 			Component:     component,
-			Window:        params.Window.String(),
-			Direction:     direction,
-			Duration:      duration,
 			StartTime:     startTime,
 			EndTime:       endTime,
 			ReferenceTime: referenceTime,
+			RequestParams: requestParams,
 			Metrics:       aggregatedMetrics,
 		}
 

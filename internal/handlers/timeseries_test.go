@@ -138,14 +138,11 @@ func TestTimeSeriesHandler_Lookback(t *testing.T) {
 	if response.Component != "webserver" {
 		t.Errorf("Expected component 'webserver', got %s", response.Component)
 	}
-	if response.Direction != "lookback" {
-		t.Errorf("Expected direction 'lookback', got %s", response.Direction)
+	if response.RequestParams.Window != "10m" {
+		t.Errorf("Expected window '10m', got %s", response.RequestParams.Window)
 	}
-	if response.Window != "10m0s" {
-		t.Errorf("Expected window '10m0s', got %s", response.Window)
-	}
-	if response.Duration != "1h0m0s" {
-		t.Errorf("Expected duration '1h0m0s', got %s", response.Duration)
+	if response.RequestParams.Lookback != "1h" {
+		t.Errorf("Expected lookback '1h', got %s", response.RequestParams.Lookback)
 	}
 
 	// Verify we have metrics data
@@ -183,8 +180,8 @@ func TestTimeSeriesHandler_Lookahead(t *testing.T) {
 		t.Fatalf("Failed to unmarshal response: %v", err)
 	}
 
-	if response.Direction != "lookahead" {
-		t.Errorf("Expected direction 'lookahead', got %s", response.Direction)
+	if response.RequestParams.Lookahead != "2h" {
+		t.Errorf("Expected lookahead '2h', got %s", response.RequestParams.Lookahead)
 	}
 
 	if response.Component != "database" {
