@@ -127,16 +127,15 @@ curl "https://myapp.com/health/system/timeseries?window=10s&lookahead=30m"
 ```json
 {
   "component": "webserver",
-  "window": "5m0s",
-  "direction": "lookback",
   "start_time": "2025-01-15T08:00:00Z",
   "end_time": "2025-01-15T10:00:00Z",
+  "reference_time": "2025-01-15T10:00:00Z",
+  "request_params": {"window": "5m", "lookback": "2h", "date": "2025-01-15", "time": "10:00:00"},
   "metrics": {
-    "response_time": {
-      "08:00:00": 45.2,
-      "08:05:00": 52.1, 
-      "08:10:00": 48.7
-    }
+    "http_requests": {"08:00:00": 1250, "08:05:00": 1423, "08:10:00": 1567, "08:15:00": 1482},
+    "response_time_ms": {"08:00:00": 45.2, "08:05:00": 52.1, "08:10:00": 48.7, "08:15:00": 51.3},
+    "error_rate": {"08:00:00": 0.12, "08:05:00": 0.08, "08:10:00": 0.15, "08:15:00": 0.09},
+    "active_connections": {"08:00:00": 127, "08:05:00": 143, "08:10:00": 156, "08:15:00": 148}
   }
 }
 ```
