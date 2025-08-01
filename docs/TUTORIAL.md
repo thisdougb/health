@@ -43,7 +43,7 @@ By the end of this tutorial, you'll have a working restaurant management system 
 
 ## Project Structure
 
-Here's how we'll organize our code (similar to the tripkist app pattern):
+Here's how we'll organize our code:
 
 ```
 dougs-diner/

@@ -24,17 +24,17 @@ This document records the reasoning behind significant architectural decisions, 
 
 ## 2025-07-31: Phase 6 - Event-Driven Backup Integration Implementation
 
-**Decision**: Implemented event-driven backup system following tripkist patterns with State lifecycle integration
+**Decision**: Implemented event-driven backup system following known patterns with State lifecycle integration
 
 **Context**:
-- Phase 6 of persistent storage plan required backup functionality following established tripkist patterns
+- Phase 6 of persistent storage plan required backup functionality following established patterns
 - Need event-driven backups (not scheduled) triggered by application lifecycle events
 - Must avoid SQLite file locking issues by using existing database connection
 - Required seamless integration with existing State system without breaking API compatibility
 - Backup functionality should be optional and configurable via environment variables
 
 **Decision**:
-- **Event-Driven Architecture**: Following tripkist patterns with backups triggered by:
+- **Event-Driven Architecture**: Following known patterns with backups triggered by:
   - State shutdown (Close() method) - automatic backup on graceful shutdown
   - Manual backup creation via Manager.CreateBackup() method
   - No scheduled/timer-based backups (event-driven only)
@@ -54,7 +54,7 @@ This document records the reasoning behind significant architectural decisions, 
   - Manager.GetBackupInfo() - Configuration introspection
 
 **Technical Implementation**:
-- Following tripkist backup.go patterns with dated backup files (health_YYYYMMDD.db)
+- Following known backup.go patterns with dated backup files (health_YYYYMMDD.db)
 - Comprehensive test suite with 13 test functions covering all scenarios
 - Event-driven backup on State.Close() - automatic backup during graceful shutdown
 - Backup directory creation with proper permissions (0755)
@@ -70,7 +70,7 @@ This document records the reasoning behind significant architectural decisions, 
 - File locking issues resolved through proper connection management
 
 **Consequences**:
-- Production-ready backup system following established tripkist patterns
+- Production-ready backup system following established patterns
 - Event-driven architecture aligns with application lifecycle management
 - Configurable backup retention prevents disk space issues
 - Zero breaking changes - full backward compatibility maintained
@@ -224,7 +224,7 @@ This document records the reasoning behind significant architectural decisions, 
 **Decision**: Created docs directory and DECISION_LOG.md to track architectural decisions
 
 **Context**: 
-- Need structured documentation approach following tripkist patterns
+- Need structured documentation approach following known patterns
 - Important to document the "why" behind implementation decisions
 - CLAUDE.md was becoming the single source of truth but needed separation of concerns
 
@@ -237,7 +237,7 @@ This document records the reasoning behind significant architectural decisions, 
 **Consequences**:
 - Future architectural decisions will be documented with context and rationale
 - Clearer separation between development guidance (CLAUDE.md) and decision history (docs/)
-- Follows established patterns from tripkist project structure
+- Follows established patterns from known project structure
 
 ---
 
@@ -246,7 +246,7 @@ This document records the reasoning behind significant architectural decisions, 
 **Decision**: Use dynamic git config values for commit co-authorship attribution
 
 **Context**:
-- Tripkist project uses mandatory collaborative attribution in all commits
+- Far Oeuf projects use mandatory collaborative attribution in all commits
 - Previously hardcoded "Doug" in commit templates
 - Need flexible attribution that works across different developers
 
@@ -257,7 +257,7 @@ This document records the reasoning behind significant architectural decisions, 
 
 **Consequences**:
 - Commit attribution automatically adapts to different git configurations
-- Maintains consistency with tripkist collaborative development patterns
+- Maintains consistency with collaborative development patterns
 - Reduces manual maintenance of commit templates
 
 ---

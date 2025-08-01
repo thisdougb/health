@@ -11,7 +11,7 @@ import (
 )
 
 // BackupHealthDatabase creates a backup of the health database using SQLite VACUUM INTO
-// Following tripkist backup patterns with atomic backup creation and automatic cleanup
+// Following backup patterns with atomic backup creation and automatic cleanup
 func BackupHealthDatabase(db *sql.DB, config *BackupConfig) error {
 	if !config.Enabled {
 		return nil // Backup disabled
@@ -47,7 +47,7 @@ func BackupHealthDatabase(db *sql.DB, config *BackupConfig) error {
 }
 
 // CleanupHealthBackups removes old backup files according to retention policy
-// Following tripkist patterns with daily and monthly retention logic
+// Following patterns with daily and monthly retention logic
 func CleanupHealthBackups(config *BackupConfig) error {
 	files, err := os.ReadDir(config.BackupDir)
 	if err != nil {
@@ -91,7 +91,7 @@ func CleanupHealthBackups(config *BackupConfig) error {
 }
 
 // ListHealthBackups returns a list of available backup files sorted by date
-// Following tripkist patterns for backup discovery
+// Following patterns for backup discovery
 func ListHealthBackups(config *BackupConfig) ([]string, error) {
 	files, err := os.ReadDir(config.BackupDir)
 	if err != nil {
@@ -114,7 +114,7 @@ func ListHealthBackups(config *BackupConfig) ([]string, error) {
 }
 
 // RestoreHealthDatabase restores the health database from a specific backup file
-// Following tripkist patterns with file copying and error handling
+// Following patterns with file copying and error handling
 func RestoreHealthDatabase(backupFileName string, targetDBPath string, config *BackupConfig) error {
 	backupPath := filepath.Join(config.BackupDir, backupFileName)
 
@@ -137,7 +137,7 @@ func RestoreHealthDatabase(backupFileName string, targetDBPath string, config *B
 }
 
 // FindBackupForDate finds a backup file for a specific date (YYYYMMDD format)
-// Following tripkist patterns for date-based backup lookup
+// Following patterns for date-based backup lookup
 func FindBackupForDate(targetDate string, config *BackupConfig) (string, error) {
 	backupFileName := "health_" + targetDate + ".db"
 	backupPath := filepath.Join(config.BackupDir, backupFileName)
@@ -150,7 +150,7 @@ func FindBackupForDate(targetDate string, config *BackupConfig) (string, error) 
 }
 
 // GetBackupRetentionInfo returns current backup retention configuration
-// Following tripkist patterns for configuration reporting
+// Following patterns for configuration reporting
 func GetBackupRetentionInfo(config *BackupConfig) map[string]interface{} {
 	return map[string]interface{}{
 		"enabled":         config.Enabled,
@@ -160,7 +160,7 @@ func GetBackupRetentionInfo(config *BackupConfig) map[string]interface{} {
 	}
 }
 
-// copyFile copies a file from src to dst following tripkist patterns
+// copyFile copies a file from src to dst following patterns
 func copyFile(src, dst string) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
@@ -177,4 +177,3 @@ func copyFile(src, dst string) error {
 	_, err = dstFile.ReadFrom(srcFile)
 	return err
 }
-

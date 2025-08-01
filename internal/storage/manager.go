@@ -126,7 +126,7 @@ func (m *Manager) IsEnabled() bool {
 }
 
 // CreateBackup creates a backup of the health database (event-driven)
-// Following tripkist backup patterns with event-driven triggers
+// Following backup patterns with event-driven triggers
 func (m *Manager) CreateBackup() error {
 	return m.createBackupInternal()
 }
@@ -152,7 +152,7 @@ func (m *Manager) ListBackups() ([]string, error) {
 	if !m.backupConfig.Enabled {
 		return nil, fmt.Errorf("backup not enabled")
 	}
-	
+
 	return ListHealthBackups(&m.backupConfig)
 }
 
@@ -161,7 +161,7 @@ func (m *Manager) RestoreFromBackup(backupFileName string, targetDBPath string) 
 	if !m.backupConfig.Enabled {
 		return fmt.Errorf("backup not enabled")
 	}
-	
+
 	return RestoreHealthDatabase(backupFileName, targetDBPath, &m.backupConfig)
 }
 
@@ -175,13 +175,13 @@ func (m *Manager) ForceFlush() error {
 	if !m.enabled || m.backend == nil {
 		return nil // Nothing to flush
 	}
-	
+
 	// Only SQLite backend has a queue to flush
 	sqliteBackend, ok := m.backend.(*SQLiteBackend)
 	if !ok {
 		return nil // Memory backend, no queue to flush
 	}
-	
+
 	// Force flush the queue
 	return sqliteBackend.queue.ForceFlush()
 }

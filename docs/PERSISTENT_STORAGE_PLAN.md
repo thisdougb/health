@@ -239,7 +239,7 @@ func GetHealthSummary(admin AdminInterface, start, end time.Time) (string, error
 **Goal**: Implement backup system following established patterns
 
 **Files to Create**:
-- `/internal/storage/backup.go` - Backup functionality following tripkist pattern
+- `/internal/storage/backup.go` - Backup functionality following known pattern
 - `/internal/storage/backup_test.go` - Backup tests
 
 **Backup Features**:
@@ -261,7 +261,6 @@ func RestoreHealthDatabase(backupFile string) error
 - Uses SQLite `VACUUM INTO` for atomic backups
 - Daily backups with configurable retention
 - Event-driven triggers (startup, shutdown, periodic)
-- Follows same patterns as tripkist/sqlitedb
 
 **Configuration**:
 ```bash
