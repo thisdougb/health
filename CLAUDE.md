@@ -23,6 +23,9 @@ The package is organized by core capabilities:
 ### 2. Data Access (Web Request Handling)  
 - `HandleHealthRequest()` - flexible URL pattern handling with external router compatibility
 - Component-specific endpoints: `/health/{component}`, `/health/{component}/status`
+- **Time Series Queries** - sar-style analysis with intuitive parameters:
+  - `?window=5m&lookback=2h` - 5-minute averages looking back 2 hours
+  - `?window=1m&lookahead=30m&date=2025-01-15&time=14:30:00` - forward analysis from specific time
 - JSON serializable output via `Dump()` method
 
 ### 3. Storage Models
@@ -141,6 +144,72 @@ The package outputs counter metrics in a component-organized structure designed 
 - **Real-time counters**: Shows current counter values for immediate status
 - **Raw values separate**: Raw metric values are persisted to storage backend for historical analysis
 - **Computer-friendly**: Optimized for consumption by tools like `jq` and monitoring systems
+
+### Time Series Analysis (sar-style Queries)
+
+The package provides intuitive time series analysis with sar-style parameters for historical and predictive analysis:
+
+```go
+// Set up time series endpoints for different components
+http.HandleFunc("/health/webserver/timeseries", state.TimeSeriesHandler("webserver"))
+http.HandleFunc("/health/database/timeseries", state.TimeSeriesHandler("database"))
+http.HandleFunc("/health/system/timeseries", state.TimeSeriesHandler("system"))
+```
+
+**Query Examples:**
+```bash
+# Look back 2 hours with 5-minute aggregation windows
+curl "http://localhost:8080/health/webserver/timeseries?window=5m&lookback=2h"
+
+# Analyze specific time period (great for incident analysis)
+curl "http://localhost:8080/health/database/timeseries?window=1m&lookback=1h&date=2025-01-15&time=14:30:00"
+
+# Forward-looking analysis (prediction scenarios)
+curl "http://localhost:8080/health/system/timeseries?window=10s&lookahead=30m"
+
+# Different time formats supported
+curl "http://localhost:8080/health/api/timeseries?window=30s&lookback=4h&time=09:15"
+```
+
+**Response Format:**
+```json
+{
+  "component": "webserver",
+  "window": "5m0s",
+  "direction": "lookback",
+  "duration": "2h0m0s", 
+  "start_time": "2025-01-15T08:00:00Z",
+  "end_time": "2025-01-15T10:00:00Z",
+  "reference_time": "2025-01-15T10:00:00Z",
+  "metrics": {
+    "requests_per_sec": {
+      "08:00:00": 125.5,
+      "08:05:00": 142.3,
+      "08:10:00": 156.7,
+      "08:15:00": 148.2
+    },
+    "response_time": {
+      "08:00:00": 45.2,
+      "08:05:00": 52.1,
+      "08:10:00": 48.7,
+      "08:15:00": 51.3
+    }
+  }
+}
+```
+
+**Key Parameters:**
+- `window` - Aggregation period (e.g., "5m", "1h", "30s") 
+- `lookback` - Look back from reference time (mutually exclusive with lookahead)
+- `lookahead` - Look forward from reference time (mutually exclusive with lookback)
+- `date` - Reference date in YYYY-MM-DD format (defaults to today)
+- `time` - Reference time in HH:MM:SS format (defaults to now)
+
+**Use Cases:**
+- **Incident analysis**: `lookback` from specific incident time
+- **Performance trending**: Regular `lookback` queries for dashboards  
+- **Capacity planning**: `lookahead` queries for prediction scenarios
+- **System monitoring**: Automated queries with different window sizes
 
 ### Web Request Handling
 ```go

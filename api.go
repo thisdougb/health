@@ -78,6 +78,13 @@ func (s *State) HandleHealthRequest(w http.ResponseWriter, r *http.Request) {
 	handler(w, r)
 }
 
+// TimeSeriesHandler returns handler for sar-style time series queries
+// Supports URL patterns: /health/{component}?window={duration}&lookback={duration}&date={date}&time={time}
+//                     or: /health/{component}?window={duration}&lookahead={duration}&date={date}&time={time}
+func (s *State) TimeSeriesHandler(component string) http.HandlerFunc {
+	return handlers.TimeSeriesHandler(s.impl, component)
+}
+
 // Component-based metrics
 
 // IncrComponentMetric increments a counter metric for a specific component

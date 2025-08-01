@@ -28,6 +28,7 @@ Instead of staring at dashboards, ask Claude questions about your application:
 
 ## Features
 
+- **Time Series Analysis** - sar-style queries with intuitive parameters (`?window=5m&lookback=2h`)
 - **Component-based organization** - Organize metrics by application component
 - **Zero dependencies** - Pure in-memory metrics by default  
 - **Schema-less metrics** - Create metrics on-demand with any name
@@ -87,6 +88,53 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
     metrics.HandleHealthRequest(w, r) // Handles all /health/* patterns
 }
 ```
+
+## Time Series Analysis (sar-style)
+
+Query historical metrics with intuitive parameters for powerful analysis:
+
+```go
+// Set up time series endpoints for different components
+http.HandleFunc("/health/webserver/timeseries", metrics.TimeSeriesHandler("webserver"))
+http.HandleFunc("/health/database/timeseries", metrics.TimeSeriesHandler("database"))
+```
+
+**Simple Query Examples:**
+```bash
+# Look back 2 hours with 5-minute averages - perfect for incident analysis
+curl "localhost:8080/health/webserver/timeseries?window=5m&lookback=2h"
+
+# Analyze specific time period (great for post-mortem analysis)
+curl "localhost:8080/health/database/timeseries?window=1m&lookback=1h&date=2025-01-15&time=14:30:00"
+
+# Forward-looking analysis (prediction scenarios)
+curl "localhost:8080/health/system/timeseries?window=10s&lookahead=30m"
+```
+
+**Response Example:**
+```json
+{
+  "component": "webserver",
+  "window": "5m0s",
+  "direction": "lookback",
+  "start_time": "2025-01-15T08:00:00Z",
+  "end_time": "2025-01-15T10:00:00Z",
+  "metrics": {
+    "response_time": {
+      "08:00:00": 45.2,
+      "08:05:00": 52.1, 
+      "08:10:00": 48.7
+    }
+  }
+}
+```
+
+**Parameters:**
+- `window` - Aggregation period (e.g., "5m", "1h", "30s") 
+- `lookback` - Look back from reference time (mutually exclusive with lookahead)
+- `lookahead` - Look forward from reference time (mutually exclusive with lookback)
+- `date` - Reference date YYYY-MM-DD (defaults to today)
+- `time` - Reference time HH:MM:SS (defaults to now)
 
 ## AI-Powered Analysis
 
@@ -151,6 +199,12 @@ HEALTH_BACKUP_RETENTION_DAYS="30"     # Days to keep backups
 **Data Access:**
 - `Dump()` - Export current state as JSON
 - `HandleHealthRequest(w, r)` - Handle flexible health URL patterns
+- `TimeSeriesHandler(component)` - Generate time series analysis handler
+
+**HTTP Handlers:**
+- `HealthHandler()` - Standard /health endpoint
+- `StatusHandler()` - Simple UP/DOWN status check
+- `TimeSeriesHandler(component)` - sar-style time series queries
 
 ## Tutorial
 
