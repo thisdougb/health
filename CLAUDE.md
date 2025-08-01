@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Go package for tracking and reporting metrics in containerized applications. The package provides a simple health monitoring system designed for service architectures, particularly in Kubernetes environments where containers expose `/health` HTTP handlers.
+This is a Go package for tracking and reporting application metrics designed for AI-first problem resolution. The package provides a simple health monitoring system for service architectures, with compatibility for environments such as containerized deployments where applications expose `/health` HTTP handlers.
 
 ## Documentation
 
@@ -44,7 +44,7 @@ The package is organized by core capabilities:
 Key design principles:
 - Memory-first approach for zero performance impact
 - Component-based organization for complex systems
-- External router compatibility (nginx, Kubernetes ingress)
+- External router compatibility with reverse proxies and load balancers
 - Go's idiomatic patterns with separate methods for type safety
 
 ## Development Commands
@@ -330,6 +330,7 @@ export HEALTH_BACKUP_DIR=/data/backups/health
 
 # How many days to keep backup files (default: 30)
 # Older backups are automatically deleted to prevent disk space issues
+# Note: You should also manage external backup storage and archival as needed
 export HEALTH_BACKUP_RETENTION_DAYS=7
 ```
 

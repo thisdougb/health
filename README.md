@@ -7,7 +7,7 @@ This package is currently undergoing a major refactor to improve the API design.
 
 ---
 
-A lightweight Go package for tracking and reporting metrics designed for AI-powered analysis. Built for Claude Code to answer complex questions about your application's behavior.
+A lightweight Go package for tracking and reporting application metrics designed for AI-first problem resolution. Import this library to enable AI-powered analysis of your application's behavior and performance patterns.
 
 > **Developed with Claude Code** - This project showcases professional-grade software development using AI pair programming with [Claude Code](https://claude.ai/code).
 
@@ -32,7 +32,7 @@ Instead of staring at dashboards, ask Claude questions about your application:
 - **Zero dependencies** - Pure in-memory metrics by default  
 - **Schema-less metrics** - Create metrics on-demand with any name
 - **Thread-safe** - Safe for concurrent use across goroutines
-- **External router compatible** - Works with nginx, Kubernetes ingress
+- **External router compatible** - Works with reverse proxies and load balancers
 - **Memory-first persistence** - Optional SQLite with zero performance impact
 - **Development-friendly** - No database setup required for development
 
@@ -53,10 +53,9 @@ func init() {
     // Create a new health state instance
     metrics = health.NewState()
     
-    // Configure with unique service identifier and rolling window size
+    // Configure with unique service identifier
     // "my-service" helps Claude identify this instance in multi-service environments
-    // 10 is the sample size for calculating rolling averages
-    metrics.SetConfig("my-service", 10)
+    metrics.SetConfig("my-service")
 }
 
 func main() {
@@ -66,15 +65,15 @@ func main() {
 }
 
 func handleAPI(w http.ResponseWriter, r *http.Request) {
-    // Global metrics (system-wide)
+    // Counter metrics (stored in memory + persisted)
     metrics.IncrMetric("total-requests") 
-    metrics.UpdateRollingMetric("memory-usage", 1024.5)
-    
-    // Component-based metrics (organized by application component)
     metrics.IncrComponentMetric("webserver", "requests")
     metrics.IncrComponentMetric("database", "queries")
-    metrics.UpdateComponentRollingMetric("webserver", "response-time", 245.0)
-    metrics.UpdateComponentRollingMetric("cache", "hit-rate", 0.85)
+    
+    // Raw value metrics (persisted to storage for analysis)
+    metrics.AddMetric("memory-usage", 1024.5)
+    metrics.AddComponentMetric("webserver", "response-time", 245.0)
+    metrics.AddComponentMetric("cache", "hit-rate", 0.85)
     
     // Your API logic here...
 }
@@ -95,17 +94,17 @@ Enable persistent storage for Claude Code to analyze historical patterns:
 
 ```bash
 # Enable SQLite storage for AI queries
-export HEALTH_STORAGE=sqlite
-export HEALTH_SQLITE_FILE=./metrics.db
+export HEALTH_PERSISTENCE_ENABLED=true
+export HEALTH_DB_PATH=./metrics.db
 
 # Your app runs unchanged - Claude can now query historical data
 go run main.go
 ```
 
 **External Router Compatibility:**
-- nginx: Route `/serviceA/health/` to different backend clusters
-- Kubernetes ingress: Different paths to different services  
+- Reverse proxies: Route `/serviceA/health/` to different backend services
 - Load balancers: Component-specific health routing
+- Container orchestration: Health checks in containerized environments such as Kubernetes
 
 ## Storage Models
 
@@ -125,11 +124,12 @@ All configuration via environment variables with sensible defaults:
 HEALTH_PERSISTENCE_ENABLED=true       # Enable SQLite persistence
 HEALTH_DB_PATH="./health.db"          # Database file path
 HEALTH_FLUSH_INTERVAL="60s"           # Background sync interval
+HEALTH_BATCH_SIZE="100"               # Metrics per batch write
 
-# Data management
-HEALTH_RETENTION_DAYS=30              # Keep data for 30 days
+# Backup management
 HEALTH_BACKUP_ENABLED=true            # Enable backups
 HEALTH_BACKUP_DIR="./backups"         # Backup directory
+HEALTH_BACKUP_RETENTION_DAYS="30"     # Days to keep backups
 ```
 
 ## API Reference
@@ -138,15 +138,15 @@ HEALTH_BACKUP_DIR="./backups"         # Backup directory
 
 **Initialization:**
 - `NewState()` - Create new health state instance
-- `SetConfig(identity, rollingSize)` - Configure metrics instance
+- `SetConfig(identity)` - Configure metrics instance
 
-**Global Metrics:**
+**Counter Metrics (Memory + Persistence):**
 - `IncrMetric(name)` - Increment global counter
-- `UpdateRollingMetric(name, value)` - Update global rolling average
-
-**Component-Based Metrics:**
 - `IncrComponentMetric(component, name)` - Increment component counter
-- `UpdateComponentRollingMetric(component, name, value)` - Update component rolling average
+
+**Raw Value Metrics (Persistence Only):**
+- `AddMetric(name, value)` - Add global raw value for analysis
+- `AddComponentMetric(component, name, value)` - Add component raw value for analysis
 
 **Data Access:**
 - `Dump()` - Export current state as JSON
@@ -169,7 +169,7 @@ Perfect for developers new to Go who want to learn both application architecture
 
 - **Memory-first performance** - Zero performance impact on applications
 - **Component-based organization** - Structure metrics by application components
-- **External router compatible** - Works with nginx, Kubernetes ingress routing
+- **Flexible routing** - Compatible with reverse proxies and load balancers
 - **Development-friendly** - No database setup required for development
 - **Production-ready persistence** - Optional SQLite with background sync
 - **Go idioms** - Separate methods for type safety (no complex variadic parameters)
