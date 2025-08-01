@@ -3,7 +3,6 @@ package health
 import (
 	"os"
 	"testing"
-	"time"
 
 	"github.com/thisdougb/health/internal/storage"
 )
@@ -25,8 +24,10 @@ func TestIntegrationMemoryPersistence(t *testing.T) {
 	state.AddMetric("response_time", 100.5)
 	state.AddComponentMetric("database", "query_time", 25.3)
 
-	// Allow some time for async persistence
-	time.Sleep(100 * time.Millisecond)
+	// Force flush any pending persistence operations
+	if sm := state.GetStorageManager(); sm != nil {
+		sm.ForceFlush()
+	}
 
 	// Verify metrics are in memory
 	json := state.Dump()
@@ -71,8 +72,10 @@ func TestIntegrationSQLitePersistence(t *testing.T) {
 	state.AddMetric("response_time", 100.5)
 	state.AddComponentMetric("database", "query_time", 25.3)
 
-	// Allow time for async persistence and batching
-	time.Sleep(2 * time.Second)
+	// Force flush persistence and batching
+	if sm := state.GetStorageManager(); sm != nil {
+		sm.ForceFlush()
+	}
 
 	// Verify the database file was created
 	if _, err := os.Stat(tmpFile); os.IsNotExist(err) {

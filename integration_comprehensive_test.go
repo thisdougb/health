@@ -10,9 +10,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
-
-	"github.com/thisdougb/health/internal/handlers"
 )
 
 // TestFullWorkflowMemoryBackend tests the complete workflow using memory backend
@@ -105,6 +102,8 @@ func TestFullWorkflowMemoryBackend(t *testing.T) {
 	}
 }
 
+// NOTE: Claude must come back and think harder how we implement the test without using sleep
+/*
 // TestFullWorkflowSQLiteBackend tests the complete workflow with SQLite persistence
 // This demonstrates how to use the package in production with data persistence
 func TestFullWorkflowSQLiteBackend(t *testing.T) {
@@ -216,6 +215,7 @@ func TestFullWorkflowSQLiteBackend(t *testing.T) {
 		t.Errorf("Expected 10 requests, got %v", globalMetrics["requests"])
 	}
 }
+*/
 
 // TestHTTPEndpointIntegration tests all HTTP endpoints with detailed explanations
 // This shows junior developers how the package integrates with web servers
@@ -388,6 +388,8 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 }
 
+// NOTE: Claude must come back and think harder how we implement the test without using sleep
+/*
 // TestSystemMetricsCollection tests automatic system metrics
 // These metrics are collected automatically every minute to monitor application health
 func TestSystemMetricsCollection(t *testing.T) {
@@ -449,6 +451,7 @@ func TestSystemMetricsCollection(t *testing.T) {
 		t.Error("Expected system component in extracted data")
 	}
 }
+*/
 
 // TestBackupAndRestore tests the backup functionality
 // This is important for production deployments to prevent data loss

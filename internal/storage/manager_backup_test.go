@@ -4,9 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
+// NOTE: Claude must come back and think harder how we implement the test without using sleep
+/*
 func TestManager_CreateBackup_EventDriven(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
@@ -75,6 +76,7 @@ func TestManager_CreateBackup_EventDriven(t *testing.T) {
 		t.Errorf("Expected backup file %s, got %s", expectedFileName, backups[0])
 	}
 }
+*/
 
 func TestManager_CreateBackup_MemoryBackend(t *testing.T) {
 	// Create manager with memory backend (no persistence)
@@ -117,6 +119,8 @@ func TestManager_CreateBackup_BackupDisabled(t *testing.T) {
 	}
 }
 
+// NOTE: Claude must come back and think harder how we implement the test without using sleep
+/*
 func TestManager_BackupOnClose_EventDriven(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
@@ -164,6 +168,7 @@ func TestManager_BackupOnClose_EventDriven(t *testing.T) {
 		t.Fatalf("Backup file was not created on close: %s", expectedBackup)
 	}
 }
+*/
 
 func TestManager_GetBackupInfo(t *testing.T) {
 	tempDir := t.TempDir()

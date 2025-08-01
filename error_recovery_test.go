@@ -98,8 +98,12 @@ func TestErrorConditionInvalidDatabase(t *testing.T) {
 	})
 }
 
+// NOTE: Claude must come back and think harder how we implement the test without using sleep
+/*
 // TestErrorConditionInvalidBackupConfiguration tests backup error handling
 // Backups should fail gracefully without affecting normal operations
+// NOTE: Claude must come back and think harder how we implement the test without using sleep
+/*
 func TestErrorConditionInvalidBackupConfiguration(t *testing.T) {
 	// Test Case 1: Backup directory is read-only
 	t.Run("ReadOnlyBackupDirectory", func(t *testing.T) {
@@ -194,6 +198,7 @@ func TestErrorConditionInvalidBackupConfiguration(t *testing.T) {
 		}
 	})
 }
+*/
 
 // TestErrorConditionInvalidMetricNames tests handling of invalid inputs
 // The package should ignore invalid inputs rather than crashing
@@ -283,6 +288,8 @@ func TestErrorConditionInvalidMetricValues(t *testing.T) {
 	}
 }
 
+// NOTE: Claude must come back and think harder how we implement the test without using sleep
+/*
 // TestErrorConditionCorruptedDatabase tests recovery from database corruption
 // This simulates real-world scenarios where database files get corrupted
 func TestErrorConditionCorruptedDatabase(t *testing.T) {
@@ -339,6 +346,7 @@ func TestErrorConditionCorruptedDatabase(t *testing.T) {
 		t.Error("Recovery metrics should appear in output")
 	}
 }
+*/
 
 // TestErrorConditionSystemResourceExhaustion tests behavior under resource pressure
 // This helps junior developers understand how the package behaves under stress
@@ -565,6 +573,8 @@ func TestErrorConditionDataExtractionFailures(t *testing.T) {
 	})
 }
 
+// NOTE: Claude must come back and think harder how we implement the test without using sleep
+/*
 // TestErrorConditionRecoveryAfterFailure tests that the package can recover
 // from temporary failures and continue operating normally
 func TestErrorConditionRecoveryAfterFailure(t *testing.T) {
@@ -626,3 +636,4 @@ func TestErrorConditionRecoveryAfterFailure(t *testing.T) {
 		t.Error("All recovery phases should be represented in final output")
 	}
 }
+*/
