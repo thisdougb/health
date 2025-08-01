@@ -19,7 +19,19 @@ go get -u github.com/thisdougb/health
 
 ## AI-First Metrics
 
-Instead of staring at dashboards, ask Claude questions about your application:
+Instead of staring at dashboards, ask Claude questions about your application. When investigating production issues, you can use the underlying API calls directly with Claude Code for immediate analysis:
+
+```
+user: I need to analyze the webserver performance during yesterday's incident. Show me 5-minute aggregated response times from 2pm to 4pm on January 15th.
+
+claude: I'll help you analyze the webserver performance during that time period.
+
+curl "http://localhost:8080/health/webserver/timeseries?window=5m&lookback=2h&date=2025-01-15&time=16:00:00"
+
+[Analyzes the JSON response and provides insights about response time patterns, spikes, and correlations with other metrics]
+```
+
+Natural language questions Claude can answer:
 
 - *"Claude, show me user signups for this week and how that has affected the significant pinch points of the app"*
 - *"What's the correlation between API response times and error rates over the last 24 hours?"*
