@@ -26,7 +26,7 @@ user: I need to analyze the webserver performance during yesterday's incident. S
 
 claude: I'll help you analyze the webserver performance during that time period.
 
-curl "http://localhost:8080/health/webserver/timeseries?window=5m&lookback=2h&date=2025-01-15&time=16:00:00"
+curl "https://myapp.com/health/webserver/timeseries?window=5m&lookback=2h&date=2025-01-15&time=16:00:00"
 
 [Analyzes the JSON response and provides insights about response time patterns, spikes, and correlations with other metrics]
 ```
@@ -114,13 +114,13 @@ http.HandleFunc("/health/database/timeseries", metrics.TimeSeriesHandler("databa
 **Simple Query Examples:**
 ```bash
 # Look back 2 hours with 5-minute averages - perfect for incident analysis
-curl "localhost:8080/health/webserver/timeseries?window=5m&lookback=2h"
+curl "https://myapp.com/health/webserver/timeseries?window=5m&lookback=2h"
 
 # Analyze specific time period (great for post-mortem analysis)
-curl "localhost:8080/health/database/timeseries?window=1m&lookback=1h&date=2025-01-15&time=14:30:00"
+curl "https://myapp.com/health/database/timeseries?window=1m&lookback=1h&date=2025-01-15&time=14:30:00"
 
 # Forward-looking analysis (prediction scenarios)
-curl "localhost:8080/health/system/timeseries?window=10s&lookahead=30m"
+curl "https://myapp.com/health/system/timeseries?window=10s&lookahead=30m"
 ```
 
 **Response Example:**
