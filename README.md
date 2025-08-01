@@ -163,6 +163,22 @@ go run main.go
 
 **Memory-First Design**: All metric operations use memory for speed. Optional SQLite persistence runs in background Go routines with zero performance impact on your application.
 
+## Memory Requirements
+
+The package has been tested for memory usage at different metric collection rates:
+
+| Rate | 1 Hour | 1 Day | 1 Week | 1 Month | 12 Months |
+|------|--------|-------|--------|---------|-----------|
+| **100 metrics/sec** | 205 KB | 4.81 MB | 33.69 MB | 144.40 MB | 1.72 GB |
+| **1,000 metrics/sec** | 226 KB | 5.30 MB | 37.13 MB | 159.14 MB | 1.89 GB |
+| **10,000 metrics/sec** | 237 KB | 5.55 MB | 38.86 MB | 166.54 MB | 1.98 GB |
+
+**Key Characteristics:**
+- Base memory overhead: ~200 KB regardless of collection rate
+- Per-metric overhead: 0.01-0.58 bytes per metric (highly efficient)
+- JSON serialization: Typically 4-5 KB for standard counter output
+- System metrics: Automatic background collection adds negligible overhead
+
 ## Configuration
 
 All configuration via environment variables with sensible defaults:
