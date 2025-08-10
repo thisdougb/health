@@ -30,6 +30,24 @@ var sqliteMigrations = []SQLiteMigration{
 		CREATE INDEX idx_metrics_component_name ON metrics(component, name);`,
 		Down: `DROP TABLE IF EXISTS metrics;`,
 	},
+	{
+		Version: 2,
+		Up: `CREATE TABLE time_series_metrics (
+			time_window_key TEXT NOT NULL,
+			component TEXT NOT NULL,
+			metric TEXT NOT NULL,
+			min_value REAL NOT NULL,
+			max_value REAL NOT NULL,
+			avg_value REAL NOT NULL,
+			count INTEGER NOT NULL,
+			created_at INTEGER DEFAULT (strftime('%s', 'now')),
+			PRIMARY KEY (time_window_key, component, metric)
+		);
+
+		CREATE INDEX idx_time_series_component ON time_series_metrics(component);
+		CREATE INDEX idx_time_series_window ON time_series_metrics(time_window_key);`,
+		Down: `DROP TABLE IF EXISTS time_series_metrics;`,
+	},
 }
 
 // runSQLiteMigrations applies all pending SQLite migrations to the database

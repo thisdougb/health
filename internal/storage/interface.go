@@ -5,6 +5,7 @@ import "time"
 // Backend defines the interface for all storage implementations
 type Backend interface {
 	WriteMetrics(metrics []MetricEntry) error
+	WriteTimeSeriesMetrics(metrics []TimeSeriesEntry) error
 	ReadMetrics(component string, start, end time.Time) ([]MetricEntry, error)
 	ListComponents() ([]string, error)
 	Close() error
@@ -17,4 +18,15 @@ type MetricEntry struct {
 	Name      string      `json:"name"`
 	Value     interface{} `json:"value"` // int for counters, float64 for rolling
 	Type      string      `json:"type"`  // "counter" or "rolling"
+}
+
+// TimeSeriesEntry represents aggregated metrics for a time window
+type TimeSeriesEntry struct {
+	TimeWindowKey   string  `json:"time_window_key"`    // YYYYMMDDHHMMSS format
+	Component       string  `json:"component"`
+	Metric          string  `json:"metric"`
+	MinValue        float64 `json:"min_value"`
+	MaxValue        float64 `json:"max_value"`
+	AvgValue        float64 `json:"avg_value"`
+	Count           int     `json:"count"`
 }

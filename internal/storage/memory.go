@@ -8,14 +8,16 @@ import (
 
 // MemoryBackend implements Backend interface using in-memory storage
 type MemoryBackend struct {
-	mu      sync.RWMutex
-	metrics []MetricEntry
+	mu              sync.RWMutex
+	metrics         []MetricEntry
+	timeSeriesData  []TimeSeriesEntry
 }
 
 // NewMemoryBackend creates a new in-memory storage backend
 func NewMemoryBackend() *MemoryBackend {
 	return &MemoryBackend{
-		metrics: make([]MetricEntry, 0),
+		metrics:        make([]MetricEntry, 0),
+		timeSeriesData: make([]TimeSeriesEntry, 0),
 	}
 }
 
@@ -29,6 +31,19 @@ func (m *MemoryBackend) WriteMetrics(metrics []MetricEntry) error {
 	defer m.mu.Unlock()
 
 	m.metrics = append(m.metrics, metrics...)
+	return nil
+}
+
+// WriteTimeSeriesMetrics stores aggregated time series metrics in memory
+func (m *MemoryBackend) WriteTimeSeriesMetrics(metrics []TimeSeriesEntry) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.timeSeriesData = append(m.timeSeriesData, metrics...)
 	return nil
 }
 

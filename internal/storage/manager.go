@@ -99,6 +99,15 @@ func (m *Manager) PersistMetrics(entries []MetricEntry) error {
 	return m.backend.WriteMetrics(entries)
 }
 
+// PersistTimeSeriesMetrics persists aggregated time series metrics if persistence is enabled
+func (m *Manager) PersistTimeSeriesMetrics(entries []TimeSeriesEntry) error {
+	if !m.enabled || m.backend == nil {
+		return nil // Persistence disabled, no-op
+	}
+
+	return m.backend.WriteTimeSeriesMetrics(entries)
+}
+
 // ReadMetrics retrieves metrics from storage
 func (m *Manager) ReadMetrics(component string, start, end time.Time) ([]MetricEntry, error) {
 	if !m.enabled || m.backend == nil {

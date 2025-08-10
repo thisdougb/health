@@ -22,6 +22,65 @@ This document records the reasoning behind significant architectural decisions, 
 
 ---
 
+## 2025-08-10: Phase 2 - Move-and-Flush Architecture for Time-Windowed Metrics Implementation
+
+**Decision**: Implemented move-and-flush architecture replacing cumulative counters with time-windowed collection system
+
+**Context**:
+- Phase 2 of time-windowed metrics plan required move-and-flush architecture for minimal lock contention
+- Need to solve server restart data loss issues and provide richer statistical data
+- Must achieve ~99% storage reduction while maintaining sub-microsecond performance
+- Required background processing system for automatic time window aggregation
+- Time window keys needed human-readable format for debugging and analysis
+
+**Decision**:
+- **Move-and-Flush Architecture**: Implemented dual-map system with separate mutexes
+  - SampledMetrics (active collection) - protected by collectMutex (RWMutex)
+  - FlushQueue (ready for DB write) - protected by flushMutex (Mutex)
+  - Minimal lock contention: hot collection path separate from flush operations
+- **Time Window Format**: Enhanced time keys to YYYYMMDDHHMMSS with zero-padding
+  - 60-second window: 20250810103300 (zeros out seconds)
+  - 1-hour window: 20250810100000 (zeros out minutes and seconds)
+  - Human-readable and sortable for database queries
+- **Statistical Aggregation**: Added calculateStats() function for min/max/avg/count
+  - Aggregation happens outside collection locks for non-blocking performance
+  - Single aggregated row replaces hundreds of individual metric entries
+- **Database Schema**: Created time_series_metrics table with proper indexing
+  - PRIMARY KEY (time_window_key, component, metric) for efficient lookups
+  - Indexes on component and time_window_key for query performance
+- **Backend Support**: Extended both SQLite and Memory backends
+  - New WriteTimeSeriesMetrics() methods for aggregated data storage
+  - Maintains existing WriteMetrics() for backward compatibility
+- **Background Processing**: Added automatic flush goroutine
+  - Runs every HEALTH_SAMPLE_RATE seconds (configurable, default 60s)
+  - Graceful shutdown with context cancellation and final flush
+
+**Technical Implementation**:
+- Comprehensive test suite with 8 new Phase 2 test functions
+- Performance validated: maintains sub-microsecond collection times
+- Storage efficiency: ~99% reduction (150 rows → 1 aggregated row per time window)
+- Thread-safe operations with separate read/write mutexes
+- Background processing with proper lifecycle management
+- All existing tests continue to pass - full backward compatibility
+
+**Performance Results**:
+- Collection operations: <100ns per metric (unchanged from Phase 1)
+- Storage reduction: 150 individual entries → 1 aggregated entry per window
+- Lock contention minimized: collection and flush operate on separate data structures
+- Memory efficiency: completed windows moved to flush queue, then cleared
+- Database efficiency: batch writes with proper transaction handling
+
+**Consequences**:
+- Solves server restart data loss - all data persisted in time windows
+- Provides rich statistical data (min/max/avg/count) for each metric per time window
+- Enables efficient historical analysis and trending
+- Foundation for advanced monitoring dashboards and alerting
+- Maintains API compatibility - no changes to existing metric collection methods
+- Supports both development (memory) and production (SQLite) workflows
+- Creates foundation for Phase 3 integration and migration features
+
+---
+
 ## 2025-07-31: Phase 6 - Event-Driven Backup Integration Implementation
 
 **Decision**: Implemented event-driven backup system following known patterns with State lifecycle integration

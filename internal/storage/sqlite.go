@@ -81,6 +81,50 @@ func (s *SQLiteBackend) WriteMetrics(metrics []MetricEntry) error {
 	return s.queue.Enqueue(metrics)
 }
 
+// WriteTimeSeriesMetrics writes aggregated time series metrics directly to SQLite
+// This bypasses the queue since these are already aggregated and ready for storage
+func (s *SQLiteBackend) WriteTimeSeriesMetrics(metrics []TimeSeriesEntry) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	// Prepare the insert statement
+	query := `INSERT OR REPLACE INTO time_series_metrics 
+		(time_window_key, component, metric, min_value, max_value, avg_value, count) 
+		VALUES (?, ?, ?, ?, ?, ?, ?)`
+
+	// Begin transaction for batch insert
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(query)
+	if err != nil {
+		return fmt.Errorf("failed to prepare statement: %w", err)
+	}
+	defer stmt.Close()
+
+	// Insert all metrics in the batch
+	for _, metric := range metrics {
+		_, err := stmt.Exec(
+			metric.TimeWindowKey,
+			metric.Component,
+			metric.Metric,
+			metric.MinValue,
+			metric.MaxValue,
+			metric.AvgValue,
+			metric.Count,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert time series metric: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
 // ReadMetrics retrieves metrics for a component within the time range
 func (s *SQLiteBackend) ReadMetrics(component string, start, end time.Time) ([]MetricEntry, error) {
 	var query string

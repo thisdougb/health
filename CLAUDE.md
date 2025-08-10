@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Go package for tracking and reporting application metrics designed for AI-first problem resolution. The package provides a simple health monitoring system for service architectures, with compatibility for environments such as containerized deployments where applications expose `/health` HTTP handlers.
+This is a Go package for tracking and reporting application metrics designed for AI-first problem resolution. The package provides a sophisticated time-windowed health monitoring system with move-and-flush architecture for service architectures, offering statistical aggregation and efficient storage with compatibility for containerized deployments where applications expose `/health` HTTP handlers.
 
 ## Documentation
 
@@ -15,10 +15,12 @@ This is a Go package for tracking and reporting application metrics designed for
 
 The package is organized by core capabilities:
 
-### 1. Data Methods (Core Metrics Recording)
-- **Global metrics**: `IncrMetric()`, `UpdateRollingMetric()` - system-wide counters and averages
-- **Component metrics**: `IncrComponentMetric()`, `UpdateComponentRollingMetric()` - organized by application component
-- Thread-safe operations using mutex protection around writes
+### 1. Data Methods (Time-Windowed Metrics Recording)
+- **Global metrics**: `IncrMetric()`, `AddMetric()` - system-wide counters and values collected in time windows
+- **Component metrics**: `IncrComponentMetric()`, `AddComponentMetric()` - organized by application component
+- **Time-windowed collection**: All metrics collected in configurable time windows (default 60 seconds) 
+- **Statistical aggregation**: Automatic min/max/avg/count calculation per time window
+- Thread-safe operations using separate collection and flush mutexes for optimal performance
 
 ### 2. Data Access (Web Request Handling)  
 - `HandleHealthRequest()` - flexible URL pattern handling with external router compatibility
@@ -29,8 +31,9 @@ The package is organized by core capabilities:
 - JSON serializable output via `Dump()` method
 
 ### 3. Storage Models
-- **Memory-only** (current) - fast, volatile, ideal for development
-- **SQLite persistence** - background sync every ~60 seconds, zero performance impact
+- **Memory-only** - fast, volatile, ideal for development with time-series support
+- **SQLite persistence** - time_series_metrics table with aggregated statistics, ~99% storage reduction
+- **Move-and-flush architecture** - background processing every ~60 seconds with zero collection impact  
 - Environment variable configuration for deployment flexibility
 
 ### 4. System Metrics (Automatic)
