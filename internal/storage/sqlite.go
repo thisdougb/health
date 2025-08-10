@@ -8,6 +8,7 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/thisdougb/health/internal/config"
 )
 
 // SQLiteBackend implements Backend interface using SQLite database
@@ -125,54 +126,81 @@ func (s *SQLiteBackend) WriteTimeSeriesMetrics(metrics []TimeSeriesEntry) error 
 	return tx.Commit()
 }
 
-// ReadMetrics retrieves metrics for a component within the time range
+// ReadMetrics retrieves aggregated time series metrics for a component within the time range
 func (s *SQLiteBackend) ReadMetrics(component string, start, end time.Time) ([]MetricEntry, error) {
+	// Convert time range to time window keys for efficient querying
+	startKey := timeToWindowKey(start)
+	endKey := timeToWindowKey(end)
+	
 	var query string
 	var args []interface{}
 
 	if component == "" {
-		// Query all components
-		query = `SELECT timestamp, component, name, value, type 
-				FROM metrics 
-				WHERE timestamp >= ? AND timestamp <= ? 
-				ORDER BY timestamp ASC`
-		args = []interface{}{start.Unix(), end.Unix()}
+		// Query all components from time_series_metrics
+		query = `SELECT time_window_key, component, metric, min_value, max_value, avg_value, count
+				FROM time_series_metrics 
+				WHERE time_window_key >= ? AND time_window_key <= ? 
+				ORDER BY time_window_key ASC, component ASC, metric ASC`
+		args = []interface{}{startKey, endKey}
 	} else {
-		// Query specific component
-		query = `SELECT timestamp, component, name, value, type 
-				FROM metrics 
-				WHERE component = ? AND timestamp >= ? AND timestamp <= ? 
-				ORDER BY timestamp ASC`
-		args = []interface{}{component, start.Unix(), end.Unix()}
+		// Query specific component from time_series_metrics  
+		query = `SELECT time_window_key, component, metric, min_value, max_value, avg_value, count
+				FROM time_series_metrics 
+				WHERE component = ? AND time_window_key >= ? AND time_window_key <= ? 
+				ORDER BY time_window_key ASC, metric ASC`
+		args = []interface{}{component, startKey, endKey}
 	}
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query metrics: %w", err)
+		return nil, fmt.Errorf("failed to query time series metrics: %w", err)
 	}
 	defer rows.Close()
 
 	var metrics []MetricEntry
 	for rows.Next() {
-		var metric MetricEntry
-		var timestamp int64
-		var value float64
+		var timeWindowKey, component, metric string
+		var minValue, maxValue, avgValue float64
+		var count int
 
-		err := rows.Scan(&timestamp, &metric.Component, &metric.Name, &value, &metric.Type)
+		err := rows.Scan(&timeWindowKey, &component, &metric, &minValue, &maxValue, &avgValue, &count)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan metric: %w", err)
+			return nil, fmt.Errorf("failed to scan time series metric: %w", err)
 		}
 
-		metric.Timestamp = time.Unix(timestamp, 0)
+		// Convert time window key back to timestamp
+		timestamp, err := windowKeyToTime(timeWindowKey)
+		if err != nil {
+			continue // Skip invalid time keys
+		}
 
-		// Convert value based on type
-		if metric.Type == "counter" {
-			metric.Value = int(value)
+		// Create MetricEntry with aggregated data - use avg as the primary value
+		// For counters (where min=max=avg=1.0), use count as value
+		var value interface{}
+		var metricType string
+		if minValue == 1.0 && maxValue == 1.0 && avgValue == 1.0 {
+			// Counter metric - use count
+			value = count
+			metricType = "counter"
 		} else {
-			metric.Value = value
+			// Value metric - use average, but include stats in metadata
+			value = map[string]interface{}{
+				"avg":   avgValue,
+				"min":   minValue, 
+				"max":   maxValue,
+				"count": count,
+			}
+			metricType = "value"
 		}
 
-		metrics = append(metrics, metric)
+		entry := MetricEntry{
+			Timestamp: timestamp,
+			Component: component,
+			Name:      metric,
+			Value:     value,
+			Type:      metricType,
+		}
+		metrics = append(metrics, entry)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -256,4 +284,22 @@ func parseInt(s string) int {
 		return 100 // Default batch size
 	}
 	return value
+}
+
+// timeToWindowKey converts a timestamp to a time window key format
+func timeToWindowKey(t time.Time) string {
+	// Use HEALTH_SAMPLE_RATE config value for window duration (default 60 seconds)
+	windowSeconds := config.IntValue("HEALTH_SAMPLE_RATE")
+	windowDuration := time.Duration(windowSeconds) * time.Second
+	
+	// Truncate to the time window boundary
+	truncated := t.Truncate(windowDuration)
+	
+	// Format as YYYYMMDDHHMMSS with trailing zeros
+	return truncated.Format("20060102150400")
+}
+
+// windowKeyToTime converts a time window key back to a timestamp
+func windowKeyToTime(key string) (time.Time, error) {
+	return time.Parse("20060102150400", key)
 }

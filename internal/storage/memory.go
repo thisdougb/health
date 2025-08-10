@@ -4,6 +4,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+	
+	"github.com/thisdougb/health/internal/config"
 )
 
 // MemoryBackend implements Backend interface using in-memory storage
@@ -47,23 +49,59 @@ func (m *MemoryBackend) WriteTimeSeriesMetrics(metrics []TimeSeriesEntry) error 
 	return nil
 }
 
-// ReadMetrics retrieves metrics for a component within the time range
+// ReadMetrics retrieves aggregated time series metrics for a component within the time range
 func (m *MemoryBackend) ReadMetrics(component string, start, end time.Time) ([]MetricEntry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	// Convert time range to time window keys for filtering
+	startKey := timeToWindowKey(start)
+	endKey := timeToWindowKey(end)
+
 	var result []MetricEntry
-	for _, metric := range m.metrics {
+	for _, tsEntry := range m.timeSeriesData {
 		// Filter by component (empty string matches all components)
-		if component != "" && metric.Component != component {
+		if component != "" && tsEntry.Component != component {
 			continue
 		}
 
-		// Filter by time range
-		if (metric.Timestamp.Equal(start) || metric.Timestamp.After(start)) &&
-			(metric.Timestamp.Equal(end) || metric.Timestamp.Before(end)) {
-			result = append(result, metric)
+		// Filter by time window key range
+		if tsEntry.TimeWindowKey < startKey || tsEntry.TimeWindowKey > endKey {
+			continue
 		}
+
+		// Convert time window key back to timestamp
+		timestamp, err := windowKeyToTime(tsEntry.TimeWindowKey)
+		if err != nil {
+			continue // Skip invalid time keys
+		}
+
+		// Create MetricEntry with aggregated data
+		var value interface{}
+		var metricType string
+		if tsEntry.MinValue == 1.0 && tsEntry.MaxValue == 1.0 && tsEntry.AvgValue == 1.0 {
+			// Counter metric - use count
+			value = tsEntry.Count
+			metricType = "counter"
+		} else {
+			// Value metric - provide full statistics
+			value = map[string]interface{}{
+				"avg":   tsEntry.AvgValue,
+				"min":   tsEntry.MinValue, 
+				"max":   tsEntry.MaxValue,
+				"count": tsEntry.Count,
+			}
+			metricType = "value"
+		}
+
+		entry := MetricEntry{
+			Timestamp: timestamp,
+			Component: tsEntry.Component,
+			Name:      tsEntry.Metric,
+			Value:     value,
+			Type:      metricType,
+		}
+		result = append(result, entry)
 	}
 
 	// Sort by timestamp for consistent ordering
@@ -114,4 +152,22 @@ func (m *MemoryBackend) Clear() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.metrics = m.metrics[:0]
+}
+
+// timeToWindowKey converts a timestamp to a time window key format
+func timeToWindowKey(t time.Time) string {
+	// Use HEALTH_SAMPLE_RATE config value for window duration (default 60 seconds)
+	windowSeconds := config.IntValue("HEALTH_SAMPLE_RATE")
+	windowDuration := time.Duration(windowSeconds) * time.Second
+	
+	// Truncate to the time window boundary
+	truncated := t.Truncate(windowDuration)
+	
+	// Format as YYYYMMDDHHMMSS with trailing zeros
+	return truncated.Format("20060102150400")
+}
+
+// windowKeyToTime converts a time window key back to a timestamp
+func windowKeyToTime(key string) (time.Time, error) {
+	return time.Parse("20060102150400", key)
 }

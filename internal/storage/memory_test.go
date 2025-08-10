@@ -81,41 +81,49 @@ func TestWriteMetrics(t *testing.T) {
 
 func TestReadMetrics(t *testing.T) {
 	backend := NewMemoryBackend()
-	now := time.Now()
+	now := time.Now().Truncate(time.Minute)
 
-	// Setup test data
-	testMetrics := []MetricEntry{
+	// Setup time series test data
+	tsMetrics := []TimeSeriesEntry{
 		{
-			Timestamp: now.Add(-2 * time.Hour),
-			Component: "web",
-			Name:      "requests",
-			Value:     50,
-			Type:      "counter",
+			TimeWindowKey: now.Add(-2 * time.Hour).Format("20060102150400"),
+			Component:     "web",
+			Metric:        "requests",
+			MinValue:      1.0,  // Counter metric
+			MaxValue:      1.0,
+			AvgValue:      1.0,
+			Count:         50,   // 50 requests in this window
 		},
 		{
-			Timestamp: now.Add(-1 * time.Hour),
-			Component: "web",
-			Name:      "requests",
-			Value:     75,
-			Type:      "counter",
+			TimeWindowKey: now.Add(-1 * time.Hour).Format("20060102150400"), 
+			Component:     "web",
+			Metric:        "requests",
+			MinValue:      1.0,  // Counter metric
+			MaxValue:      1.0,
+			AvgValue:      1.0,
+			Count:         75,   // 75 requests in this window
 		},
 		{
-			Timestamp: now,
-			Component: "db",
-			Name:      "queries",
-			Value:     25,
-			Type:      "counter",
+			TimeWindowKey: now.Format("20060102150400"),
+			Component:     "db",
+			Metric:        "queries",
+			MinValue:      1.0,  // Counter metric
+			MaxValue:      1.0,
+			AvgValue:      1.0,
+			Count:         25,   // 25 queries in this window
 		},
 		{
-			Timestamp: now.Add(time.Hour),
-			Component: "cache",
-			Name:      "hit_rate",
-			Value:     0.85,
-			Type:      "rolling",
+			TimeWindowKey: now.Add(time.Hour).Format("20060102150400"),
+			Component:     "cache",
+			Metric:        "hit_rate",
+			MinValue:      0.80, // Value metric with stats
+			MaxValue:      0.90,
+			AvgValue:      0.85,
+			Count:         100,  // 100 samples in this window
 		},
 	}
 
-	err := backend.WriteMetrics(testMetrics)
+	err := backend.WriteTimeSeriesMetrics(tsMetrics)
 	if err != nil {
 		t.Fatalf("Failed to setup test data: %v", err)
 	}
@@ -135,7 +143,7 @@ func TestReadMetrics(t *testing.T) {
 			expected:  4,
 		},
 		{
-			name:      "web component only",
+			name:      "web component only", 
 			component: "web",
 			start:     now.Add(-3 * time.Hour),
 			end:       now.Add(2 * time.Hour),
@@ -146,7 +154,7 @@ func TestReadMetrics(t *testing.T) {
 			component: "",
 			start:     now.Add(-90 * time.Minute),
 			end:       now.Add(30 * time.Minute),
-			expected:  2,
+			expected:  2, // db queries at now, web requests at -1hr
 		},
 		{
 			name:      "no matches",
@@ -172,6 +180,21 @@ func TestReadMetrics(t *testing.T) {
 				if results[i].Timestamp.Before(results[i-1].Timestamp) {
 					t.Error("Results not sorted by timestamp")
 					break
+				}
+			}
+
+			// Verify counter vs value metric types
+			for _, result := range results {
+				if result.Name == "hit_rate" {
+					// Value metric should have stats map
+					if _, ok := result.Value.(map[string]interface{}); !ok {
+						t.Errorf("Expected value metric %s to return stats map", result.Name)
+					}
+				} else {
+					// Counter metrics should have integer count
+					if _, ok := result.Value.(int); !ok {
+						t.Errorf("Expected counter metric %s to return integer count", result.Name)
+					}
 				}
 			}
 		})

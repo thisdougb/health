@@ -44,38 +44,38 @@ func TestSQLiteBackend_WriteAndReadMetrics(t *testing.T) {
 	backend := setupTestSQLiteBackend(t)
 	defer backend.Close()
 
-	// Test metrics
-	now := time.Now().Truncate(time.Second)
-	metrics := []MetricEntry{
+	// Test time series metrics (aggregated format)
+	now := time.Now().Truncate(time.Minute) // Use minute precision for time windows
+	timeKey := now.Format("20060102150400")
+	
+	tsMetrics := []TimeSeriesEntry{
 		{
-			Timestamp: now,
-			Component: "test",
-			Name:      "counter1",
-			Value:     42,
-			Type:      "counter",
+			TimeWindowKey: timeKey,
+			Component:     "test",
+			Metric:        "counter1",
+			MinValue:      1.0,  // Counter: all values are 1.0
+			MaxValue:      1.0,
+			AvgValue:      1.0,
+			Count:         42,   // Counter: count shows total increments
 		},
 		{
-			Timestamp: now.Add(time.Second),
-			Component: "test",
-			Name:      "rolling1",
-			Value:     3.14,
-			Type:      "rolling",
+			TimeWindowKey: timeKey,
+			Component:     "test", 
+			Metric:        "value_metric",
+			MinValue:      2.0,   // Value metric: actual min/max/avg
+			MaxValue:      5.0,
+			AvgValue:      3.14,
+			Count:         10,    // Value metric: count shows number of samples
 		},
 	}
 
-	// Write metrics
-	err := backend.WriteMetrics(metrics)
+	// Write time series metrics
+	err := backend.WriteTimeSeriesMetrics(tsMetrics)
 	if err != nil {
-		t.Fatalf("Failed to write metrics: %v", err)
+		t.Fatalf("Failed to write time series metrics: %v", err)
 	}
 
-	// Force flush to ensure metrics are written
-	err = backend.queue.ForceFlush()
-	if err != nil {
-		t.Fatalf("Failed to flush queue: %v", err)
-	}
-
-	// Read metrics
+	// Read metrics (now returns time-series format)
 	start := now.Add(-time.Hour)
 	end := now.Add(time.Hour)
 
@@ -89,7 +89,7 @@ func TestSQLiteBackend_WriteAndReadMetrics(t *testing.T) {
 		t.Fatalf("Expected 2 metrics, got %d", len(readMetrics))
 	}
 
-	// Check first metric (counter)
+	// Check first metric (counter) - should return count as value
 	if readMetrics[0].Component != "test" ||
 		readMetrics[0].Name != "counter1" ||
 		readMetrics[0].Value != 42 ||
@@ -97,12 +97,20 @@ func TestSQLiteBackend_WriteAndReadMetrics(t *testing.T) {
 		t.Fatalf("First metric doesn't match: %+v", readMetrics[0])
 	}
 
-	// Check second metric (rolling)
-	if readMetrics[1].Component != "test" ||
-		readMetrics[1].Name != "rolling1" ||
-		readMetrics[1].Value != 3.14 ||
-		readMetrics[1].Type != "rolling" {
-		t.Fatalf("Second metric doesn't match: %+v", readMetrics[1])
+	// Check second metric (value) - should return stats map
+	if readMetrics[1].Component != "test" || readMetrics[1].Name != "value_metric" {
+		t.Fatalf("Second metric component/name doesn't match: %+v", readMetrics[1])
+	}
+	
+	// Value metrics return a map with statistics
+	statsMap, ok := readMetrics[1].Value.(map[string]interface{})
+	if !ok {
+		t.Fatalf("Expected value metric to return stats map, got %T", readMetrics[1].Value)
+	}
+	
+	if statsMap["min"] != 2.0 || statsMap["max"] != 5.0 || 
+		 statsMap["avg"] != 3.14 || statsMap["count"] != 10 {
+		t.Fatalf("Second metric stats don't match: %+v", statsMap)
 	}
 }
 
@@ -110,21 +118,34 @@ func TestSQLiteBackend_ReadMetricsAllComponents(t *testing.T) {
 	backend := setupTestSQLiteBackend(t)
 	defer backend.Close()
 
-	// Test metrics from different components
-	now := time.Now().Truncate(time.Second)
-	metrics := []MetricEntry{
-		{Timestamp: now, Component: "comp1", Name: "metric1", Value: 1, Type: "counter"},
-		{Timestamp: now, Component: "comp2", Name: "metric2", Value: 2, Type: "counter"},
+	// Test time series metrics from different components
+	now := time.Now().Truncate(time.Minute)
+	timeKey := now.Format("20060102150400")
+	
+	tsMetrics := []TimeSeriesEntry{
+		{
+			TimeWindowKey: timeKey,
+			Component:     "comp1", 
+			Metric:        "metric1",
+			MinValue:      1.0,
+			MaxValue:      1.0,
+			AvgValue:      1.0,
+			Count:         5,
+		},
+		{
+			TimeWindowKey: timeKey,
+			Component:     "comp2",
+			Metric:        "metric2", 
+			MinValue:      1.0,
+			MaxValue:      1.0,
+			AvgValue:      1.0,
+			Count:         10,
+		},
 	}
 
-	err := backend.WriteMetrics(metrics)
+	err := backend.WriteTimeSeriesMetrics(tsMetrics)
 	if err != nil {
-		t.Fatalf("Failed to write metrics: %v", err)
-	}
-
-	err = backend.queue.ForceFlush()
-	if err != nil {
-		t.Fatalf("Failed to flush queue: %v", err)
+		t.Fatalf("Failed to write time series metrics: %v", err)
 	}
 
 	// Read all components (empty component string)
@@ -138,6 +159,22 @@ func TestSQLiteBackend_ReadMetricsAllComponents(t *testing.T) {
 
 	if len(readMetrics) != 2 {
 		t.Fatalf("Expected 2 metrics, got %d", len(readMetrics))
+	}
+
+	// Verify both components are returned
+	foundComp1 := false
+	foundComp2 := false
+	for _, metric := range readMetrics {
+		if metric.Component == "comp1" && metric.Name == "metric1" && metric.Value == 5 {
+			foundComp1 = true
+		}
+		if metric.Component == "comp2" && metric.Name == "metric2" && metric.Value == 10 {
+			foundComp2 = true  
+		}
+	}
+	
+	if !foundComp1 || !foundComp2 {
+		t.Fatalf("Missing expected components in results: %+v", readMetrics)
 	}
 }
 
