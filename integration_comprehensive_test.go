@@ -97,10 +97,28 @@ func TestFullWorkflowMemoryBackend(t *testing.T) {
 		t.Errorf("Expected web requests = 1, got %v", webMetrics["requests"])
 	}
 
-	// Important: Raw values (response_time, query_time, hit_rate) should NOT appear in JSON
-	// They are stored in the backend for historical analysis, not real-time display
-	if _, exists := globalMetrics["response_time"]; exists {
-		t.Error("Raw values should not appear in JSON output - they go to storage backend")
+	// Phase 1 Time-Windowed Implementation: Raw values now appear as statistical aggregations
+	// This is an improvement over the previous design - we get real-time statistics in current window
+	if responseTimeStats, exists := globalMetrics["response_time"]; exists {
+		statsMap, ok := responseTimeStats.(map[string]interface{})
+		if !ok {
+			t.Error("response_time should be a statistics object with count/min/max/avg")
+		} else {
+			if statsMap["count"] != float64(1) {
+				t.Errorf("Expected response_time count of 1, got %v", statsMap["count"])
+			}
+			if statsMap["min"] != 145.7 {
+				t.Errorf("Expected response_time min of 145.7, got %v", statsMap["min"])
+			}
+			if statsMap["max"] != 145.7 {
+				t.Errorf("Expected response_time max of 145.7, got %v", statsMap["max"])
+			}
+			if statsMap["avg"] != 145.7 {
+				t.Errorf("Expected response_time avg of 145.7, got %v", statsMap["avg"])
+			}
+		}
+	} else {
+		t.Error("response_time statistics should appear in current time window")
 	}
 }
 

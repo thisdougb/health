@@ -2,20 +2,34 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 	"time"
 
+	"github.com/thisdougb/health/internal/config"
 	"github.com/thisdougb/health/internal/metrics"
 	"github.com/thisdougb/health/internal/storage"
 )
+
+// getCurrentTimeKey returns a string key representing the current time window
+// Uses HEALTH_SAMPLE_RATE config value for window duration (default 60 seconds)
+func getCurrentTimeKey() string {
+	now := time.Now()
+	windowSeconds := config.IntValue("HEALTH_SAMPLE_RATE")
+	windowDuration := time.Duration(windowSeconds) * time.Second
+	
+	// Truncate to the configured time window boundary
+	truncated := now.Truncate(windowDuration)
+	return fmt.Sprintf("%d", truncated.Unix())
+}
 
 // StateImpl holds our health data and persists all metric values.
 // This is the internal implementation.
 type StateImpl struct {
 	Identity        string
 	Started         int64
-	Metrics         map[string]map[string]int
+	SampledMetrics  map[string]map[string]map[string][]float64 // component -> timekey -> metric -> values
 	persistence     *storage.Manager
 	systemCollector *metrics.SystemCollector
 	mu              sync.Mutex // writer lock
@@ -84,22 +98,22 @@ func (s *StateImpl) IncrComponentMetric(component, name string) {
 		return
 	}
 
+	timeKey := getCurrentTimeKey()
+
 	s.mu.Lock() // enter CRITICAL SECTION
-	if s.Metrics == nil {
-		s.Metrics = make(map[string]map[string]int)
+	if s.SampledMetrics == nil {
+		s.SampledMetrics = make(map[string]map[string]map[string][]float64)
 	}
-	if s.Metrics[component] == nil {
-		s.Metrics[component] = make(map[string]int)
+	if s.SampledMetrics[component] == nil {
+		s.SampledMetrics[component] = make(map[string]map[string][]float64)
+	}
+	if s.SampledMetrics[component][timeKey] == nil {
+		s.SampledMetrics[component][timeKey] = make(map[string][]float64)
 	}
 
-	s.Metrics[component][name]++
-	currentValue := s.Metrics[component][name]
+	// Append 1.0 for each counter increment
+	s.SampledMetrics[component][timeKey][name] = append(s.SampledMetrics[component][timeKey][name], 1.0)
 	s.mu.Unlock() // end CRITICAL SECTION
-
-	// Persist metric asynchronously (non-blocking) - the storage backend handles queuing
-	if err := s.persistence.PersistMetric(component, name, currentValue, "counter"); err != nil {
-		log.Printf("Warning: Failed to persist counter metric %s.%s: %v", component, name, err)
-	}
 }
 
 // AddMetric records a raw metric value for a specific component
@@ -108,10 +122,22 @@ func (s *StateImpl) AddMetric(component, name string, value float64) {
 		return
 	}
 
-	// Persist metric asynchronously (non-blocking) - the storage backend handles queuing
-	if err := s.persistence.PersistMetric(component, name, value, "value"); err != nil {
-		log.Printf("Warning: Failed to persist metric %s.%s: %v", component, name, err)
+	timeKey := getCurrentTimeKey()
+
+	s.mu.Lock() // enter CRITICAL SECTION
+	if s.SampledMetrics == nil {
+		s.SampledMetrics = make(map[string]map[string]map[string][]float64)
 	}
+	if s.SampledMetrics[component] == nil {
+		s.SampledMetrics[component] = make(map[string]map[string][]float64)
+	}
+	if s.SampledMetrics[component][timeKey] == nil {
+		s.SampledMetrics[component][timeKey] = make(map[string][]float64)
+	}
+
+	// Append the actual value for raw metrics
+	s.SampledMetrics[component][timeKey][name] = append(s.SampledMetrics[component][timeKey][name], value)
+	s.mu.Unlock() // end CRITICAL SECTION
 }
 
 // AddGlobalMetric records a raw metric value in the Global component
@@ -119,22 +145,102 @@ func (s *StateImpl) AddGlobalMetric(name string, value float64) {
 	s.AddMetric("Global", name, value)
 }
 
-// Dump returns a JSON byte-string.
+// Dump returns a JSON byte-string showing current time window statistics.
 // Uses mutex protection to prevent race conditions during concurrent access.
 // This ensures thread safety when reading metrics while writes are happening.
 func (s *StateImpl) Dump() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var dataString string
+	// Create a structure for JSON output with current window statistics
+	currentTimeKey := getCurrentTimeKey()
+	output := map[string]interface{}{
+		"Identity": s.Identity,
+		"Started":  s.Started,
+		"Metrics":  make(map[string]map[string]interface{}),
+	}
 
-	data, err := json.MarshalIndent(s, "", "    ")
+	// Convert current time window data to aggregated statistics
+	if s.SampledMetrics != nil {
+		for component, timeWindows := range s.SampledMetrics {
+			if timeData, exists := timeWindows[currentTimeKey]; exists && len(timeData) > 0 {
+				componentMetrics := make(map[string]interface{})
+				for metricName, values := range timeData {
+					if len(values) > 0 {
+						// For counter metrics (all 1.0 values), show count
+						// For value metrics, show current statistics
+						if allOnes(values) {
+							componentMetrics[metricName] = len(values)
+						} else {
+							componentMetrics[metricName] = map[string]interface{}{
+								"count": len(values),
+								"min":   minValue(values),
+								"max":   maxValue(values),
+								"avg":   avgValue(values),
+							}
+						}
+					}
+				}
+				if len(componentMetrics) > 0 {
+					output["Metrics"].(map[string]map[string]interface{})[component] = componentMetrics
+				}
+			}
+		}
+	}
+
+	data, err := json.MarshalIndent(output, "", "    ")
 	if err != nil {
 		log.Fatalf("JSON Marshalling failed: %s", err)
 	}
-	dataString = string(data)
 
-	return dataString
+	return string(data)
+}
+
+// Helper functions for statistics calculation
+func allOnes(values []float64) bool {
+	for _, v := range values {
+		if v != 1.0 {
+			return false
+		}
+	}
+	return true
+}
+
+func minValue(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	min := values[0]
+	for _, v := range values[1:] {
+		if v < min {
+			min = v
+		}
+	}
+	return min
+}
+
+func maxValue(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	max := values[0]
+	for _, v := range values[1:] {
+		if v > max {
+			max = v
+		}
+	}
+	return max
+}
+
+func avgValue(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	sum := 0.0
+	for _, v := range values {
+		sum += v
+	}
+	return sum / float64(len(values))
 }
 
 // GetStorageManager returns the storage manager for administrative operations
