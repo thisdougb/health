@@ -10,6 +10,14 @@ import (
 	"time"
 )
 
+// BackupConfig holds backup-specific configuration
+type BackupConfig struct {
+	Enabled        bool
+	BackupDir      string
+	RetentionDays  int
+	BackupInterval time.Duration
+}
+
 // BackupHealthDatabase creates a backup of the health database using SQLite VACUUM INTO
 // Following backup patterns with atomic backup creation and automatic cleanup
 func BackupHealthDatabase(db *sql.DB, config *BackupConfig) error {

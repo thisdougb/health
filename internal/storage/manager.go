@@ -3,6 +3,8 @@ package storage
 import (
 	"fmt"
 	"time"
+
+	"github.com/thisdougb/health/internal/config"
 )
 
 // Manager coordinates persistence operations between the State system and storage backends
@@ -22,12 +24,7 @@ func NewManager(backend Backend, enabled bool) *Manager {
 
 // NewManagerFromConfig creates a manager using environment variable configuration
 func NewManagerFromConfig() (*Manager, error) {
-	config, err := LoadConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	if !config.Enabled {
+	if !config.BoolValue("HEALTH_PERSISTENCE_ENABLED") {
 		// Return manager with no backend (disabled)
 		return &Manager{
 			backend: nil,
@@ -37,12 +34,21 @@ func NewManagerFromConfig() (*Manager, error) {
 
 	// Create appropriate backend based on configuration
 	var backend Backend
-	if config.DBPath != "" {
+	var err error
+	if dbPath := config.StringValue("HEALTH_DB_PATH"); dbPath != "" {
+		// Parse flush interval
+		flushInterval := 60 * time.Second
+		if flushStr := config.StringValue("HEALTH_FLUSH_INTERVAL"); flushStr != "" {
+			if interval, parseErr := time.ParseDuration(flushStr); parseErr == nil {
+				flushInterval = interval
+			}
+		}
+
 		// Use SQLite backend
 		sqliteConfig := SQLiteConfig{
-			DBPath:        config.DBPath,
-			FlushInterval: config.FlushInterval,
-			BatchSize:     config.BatchSize,
+			DBPath:        dbPath,
+			FlushInterval: flushInterval,
+			BatchSize:     config.IntValue("HEALTH_BATCH_SIZE"),
 		}
 		backend, err = NewSQLiteBackend(sqliteConfig)
 		if err != nil {
@@ -54,9 +60,14 @@ func NewManagerFromConfig() (*Manager, error) {
 	}
 
 	manager := &Manager{
-		backend:      backend,
-		enabled:      true,
-		backupConfig: config.Backup,
+		backend: backend,
+		enabled: true,
+		backupConfig: BackupConfig{
+			Enabled:       config.BoolValue("HEALTH_BACKUP_ENABLED"),
+			BackupDir:     config.StringValue("HEALTH_BACKUP_DIR"),
+			RetentionDays: config.IntValue("HEALTH_BACKUP_RETENTION_DAYS"),
+			BackupInterval: 24 * time.Hour,
+		},
 	}
 
 	return manager, nil

@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"time"
 	"unsafe"
+
+	"github.com/thisdougb/health/internal/config"
 )
 
 // SystemCollector manages automatic collection and reporting of system metrics
@@ -28,10 +30,14 @@ type StateInterface interface {
 func NewSystemCollector(state StateInterface) *SystemCollector {
 	ctx, cancel := context.WithCancel(context.Background())
 	
+	// Get sample rate from config (default 60 seconds)
+	sampleRate := config.IntValue("HEALTH_SAMPLE_RATE")
+	interval := time.Duration(sampleRate) * time.Second
+	
 	return &SystemCollector{
 		state:     state,
 		startTime: time.Now(),
-		interval:  1 * time.Minute, // Default to 1 minute collection interval
+		interval:  interval,
 		ctx:       ctx,
 		cancel:    cancel,
 		enabled:   true,
