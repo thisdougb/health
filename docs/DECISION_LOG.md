@@ -22,6 +22,46 @@ This document records the reasoning behind significant architectural decisions, 
 
 ---
 
+## 2025-08-11: SQLite Backend Refactoring and Test Performance Optimization
+
+**Decision**: Refactor SQLite backend to CRUD-only pattern and optimize test performance using build tag isolation
+
+**Context**:
+- SQLite backend had its own internal queue system (SQLiteWriteQueue) creating inconsistent behavior
+- Test suite was taking 24+ seconds due to performance tests running during normal testing
+- Need for consistent behavior across memory and SQLite backends
+- Test performance affecting development workflow and CI/CD pipeline efficiency
+
+**Decision**:
+- **SQLite CRUD-Only Refactoring**: Complete architectural change to universal queue pattern
+  - Removed SQLiteWriteQueue internal queue system entirely
+  - SQLite backend now rejects raw metrics via WriteMetrics(), only accepts processed data via WriteMetricsData()
+  - Universal queue at Manager level handles all time-windowed processing for both memory and SQLite
+  - Consistent behavior: all backends are now CRUD-only storage layers
+  - Separation of concerns: backends focus on storage, queue handles processing logic
+- **Test Performance Optimization**: Build tag isolation for different test categories
+  - Memory sizing tests moved to `//go:build dev && memory` (20+ seconds → opt-in only)
+  - Stress tests moved to `//go:build longrunning` (2+ seconds → opt-in only) 
+  - Normal tests now run in <1 second (was 24+ seconds)
+  - Development tests with `-tags dev` run in ~3 seconds with full coverage
+- **Test Synchronization Improvements**: Eliminate all time.Sleep statements
+  - Replaced time.Sleep() calls with direct ForceFlush() synchronization
+  - Test async processes directly rather than relying on timing
+  - Improved test reliability and eliminated flaky timing-dependent behavior
+
+**Rationale**:
+- **Consistency**: Universal queue pattern ensures identical behavior across all storage backends
+- **Performance**: Developers can run fast tests during development, opt into slow tests when needed
+- **Maintainability**: Single queue implementation eliminates duplicate logic and reduces complexity
+- **CI/CD Efficiency**: Fast standard tests suitable for continuous integration pipelines
+- **Testing Quality**: Direct synchronization more reliable than timing-dependent tests
+
+**Impact**:
+- Test suite performance: 24+ seconds → <1 second for normal workflow
+- Architecture consistency: All backends now follow identical CRUD-only pattern
+- Better separation of concerns between storage and processing logic
+- More predictable test execution without timing dependencies
+
 ## 2025-08-10: Phase 3 - Complete Time-Windowed Metrics Integration
 
 **Decision**: Completed final phase of time-windowed metrics system with full storage layer integration and test updates
