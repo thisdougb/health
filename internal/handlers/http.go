@@ -19,7 +19,7 @@ type StateInterface interface {
 
 // TimeSeriesParams holds parsed query parameters
 type TimeSeriesParams struct {
-	Window    time.Duration
+	Interval  time.Duration
 	Lookback  *time.Duration
 	Lookahead *time.Duration
 	Date      *time.Time
@@ -28,7 +28,7 @@ type TimeSeriesParams struct {
 
 // RequestParams represents the original query parameters from the request
 type RequestParams struct {
-	Window    string `json:"window,omitempty"`
+	Interval  string `json:"interval,omitempty"`
 	Lookback  string `json:"lookback,omitempty"`
 	Lookahead string `json:"lookahead,omitempty"`
 	Date      string `json:"date,omitempty"`
@@ -124,12 +124,12 @@ func TimeSeriesHandler(state StateInterface, component string) http.HandlerFunc 
 			return
 		}
 
-		// Aggregate metrics by window
-		aggregatedMetrics := aggregateMetricsByWindow(metrics, params.Window)
+		// Aggregate metrics by interval
+		aggregatedMetrics := aggregateMetricsByInterval(metrics, params.Interval)
 
 		// Build request params from original query parameters  
 		requestParams := RequestParams{
-			Window: r.URL.Query().Get("window"),
+			Interval: r.URL.Query().Get("interval"),
 		}
 		if params.Lookback != nil {
 			requestParams.Lookback = r.URL.Query().Get("lookback")
@@ -165,16 +165,16 @@ func TimeSeriesHandler(state StateInterface, component string) http.HandlerFunc 
 func parseTimeSeriesParams(r *http.Request) (*TimeSeriesParams, error) {
 	params := &TimeSeriesParams{}
 
-	// Parse window parameter (required)
-	windowStr := r.URL.Query().Get("window")
-	if windowStr == "" {
-		return nil, fmt.Errorf("window parameter is required")
+	// Parse interval parameter (required)
+	intervalStr := r.URL.Query().Get("interval")
+	if intervalStr == "" {
+		return nil, fmt.Errorf("interval parameter is required")
 	}
-	window, err := time.ParseDuration(windowStr)
+	interval, err := time.ParseDuration(intervalStr)
 	if err != nil {
-		return nil, fmt.Errorf("invalid window duration: %v", err)
+		return nil, fmt.Errorf("invalid interval duration: %v", err)
 	}
-	params.Window = window
+	params.Interval = interval
 
 	// Parse lookback parameter (optional)
 	lookbackStr := r.URL.Query().Get("lookback")
@@ -265,21 +265,21 @@ func calculateReferenceTime(params *TimeSeriesParams) time.Time {
 	)
 }
 
-// aggregateMetricsByWindow aggregates metrics into time windows for sar-style output
-func aggregateMetricsByWindow(metrics []storage.MetricEntry, window time.Duration) map[string]interface{} {
+// aggregateMetricsByInterval aggregates metrics into time intervals for sar-style output
+func aggregateMetricsByInterval(metrics []storage.MetricEntry, interval time.Duration) map[string]interface{} {
 	if len(metrics) == 0 {
 		return make(map[string]interface{})
 	}
 
-	// Group metrics by name and time window
-	windowGroups := make(map[string]map[int64][]float64)
+	// Group metrics by name and time interval
+	intervalGroups := make(map[string]map[int64][]float64)
 
 	for _, metric := range metrics {
-		// Calculate window bucket (unix timestamp divided by window seconds)
-		windowStart := metric.Timestamp.Truncate(window).Unix()
+		// Calculate interval bucket (unix timestamp truncated to interval)
+		intervalStart := metric.Timestamp.Truncate(interval).Unix()
 
-		if windowGroups[metric.Name] == nil {
-			windowGroups[metric.Name] = make(map[int64][]float64)
+		if intervalGroups[metric.Name] == nil {
+			intervalGroups[metric.Name] = make(map[int64][]float64)
 		}
 
 		// Convert value to float64 for aggregation
@@ -297,16 +297,16 @@ func aggregateMetricsByWindow(metrics []storage.MetricEntry, window time.Duratio
 			continue // Skip unsupported types
 		}
 
-		windowGroups[metric.Name][windowStart] = append(windowGroups[metric.Name][windowStart], val)
+		intervalGroups[metric.Name][intervalStart] = append(intervalGroups[metric.Name][intervalStart], val)
 	}
 
-	// Calculate averages for each window
+	// Calculate averages for each interval
 	result := make(map[string]interface{})
-	for metricName, windows := range windowGroups {
-		windowAverages := make(map[string]float64)
+	for metricName, intervals := range intervalGroups {
+		intervalAverages := make(map[string]float64)
 
-		for windowStart, values := range windows {
-			// Calculate average for this window
+		for intervalStart, values := range intervals {
+			// Calculate average for this interval
 			sum := 0.0
 			for _, val := range values {
 				sum += val
@@ -314,12 +314,225 @@ func aggregateMetricsByWindow(metrics []storage.MetricEntry, window time.Duratio
 			avg := sum / float64(len(values))
 
 			// Convert timestamp back to readable format
-			windowTime := time.Unix(windowStart, 0).UTC().Format("15:04:05")
-			windowAverages[windowTime] = avg
+			intervalTime := time.Unix(intervalStart, 0).UTC().Format("15:04:05")
+			intervalAverages[intervalTime] = avg
 		}
 
-		result[metricName] = windowAverages
+		result[metricName] = intervalAverages
 	}
 
 	return result
+}
+
+// HandleHealthRequestUnified handles unified health requests with storage-backed queries
+// Extracts component from URL path (optional) and supports time-series parameters
+// URL patterns: /health, /health/{component}, /health/{component}/timeseries
+// Default when no time params: interval=1m, lookback=1h (past hour in 1-minute intervals)
+func HandleHealthRequestUnified(state StateInterface, w http.ResponseWriter, r *http.Request) {
+	// Extract component from URL path
+	component := extractComponentFromPath(r.URL.Path)
+	
+	// Check if any time-series parameters are provided
+	hasTimeParams := hasTimeSeriesParams(r)
+	
+	if !hasTimeParams {
+		// Default to past 1 hour with 1-minute intervals
+		r.URL.RawQuery = "interval=1m&lookback=1h"
+	}
+	
+	// Parse time-series parameters (including defaults)
+	params, err := parseTimeSeriesParamsWithDefaults(r)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Invalid parameters: %v", err), http.StatusBadRequest)
+		return
+	}
+	
+	// Validate mutually exclusive lookback/lookahead
+	if params.Lookback != nil && params.Lookahead != nil {
+		http.Error(w, "lookback and lookahead are mutually exclusive", http.StatusBadRequest)
+		return
+	}
+	
+	if params.Lookback == nil && params.Lookahead == nil {
+		http.Error(w, "either lookback or lookahead must be specified", http.StatusBadRequest)
+		return
+	}
+	
+	// Check if persistence is enabled
+	manager := state.GetStorageManager()
+	if manager == nil || !manager.IsEnabled() {
+		// Fall back to memory-based JSON output when no persistence
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "%s\n", state.Dump())
+		return
+	}
+	
+	// Calculate reference time
+	referenceTime := calculateReferenceTime(params)
+	
+	// Calculate time range
+	var startTime, endTime time.Time
+	
+	if params.Lookback != nil {
+		startTime = referenceTime.Add(-*params.Lookback)
+		endTime = referenceTime
+	} else {
+		startTime = referenceTime
+		endTime = referenceTime.Add(*params.Lookahead)
+	}
+	
+	// Read metrics from storage
+	metrics, err := manager.ReadMetrics(component, startTime, endTime)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read metrics: %v", err), http.StatusInternalServerError)
+		return
+	}
+	
+	// Aggregate metrics by interval
+	aggregatedMetrics := aggregateMetricsByInterval(metrics, params.Interval)
+	
+	// Build request params from original query parameters  
+	requestParams := RequestParams{
+		Interval: r.URL.Query().Get("interval"),
+	}
+	if params.Lookback != nil {
+		requestParams.Lookback = r.URL.Query().Get("lookback")
+	}
+	if params.Lookahead != nil {
+		requestParams.Lookahead = r.URL.Query().Get("lookahead")
+	}
+	if dateStr := r.URL.Query().Get("date"); dateStr != "" {
+		requestParams.Date = dateStr
+	}
+	if timeStr := r.URL.Query().Get("time"); timeStr != "" {
+		requestParams.Time = timeStr
+	}
+	
+	// Build response
+	response := TimeSeriesResponse{
+		Component:     component,
+		StartTime:     startTime,
+		EndTime:       endTime,
+		ReferenceTime: referenceTime,
+		RequestParams: requestParams,
+		Metrics:       aggregatedMetrics,
+	}
+	
+	// Return JSON response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+// extractComponentFromPath extracts component name from URL path
+// /health -> "" (all components)
+// /health/webserver -> "webserver"
+// /health/webserver/timeseries -> "webserver"
+func extractComponentFromPath(path string) string {
+	// Remove leading/trailing slashes and split
+	path = strings.Trim(path, "/")
+	parts := strings.Split(path, "/")
+	
+	// /health
+	if len(parts) == 1 && parts[0] == "health" {
+		return ""
+	}
+	
+	// /health/{component} or /health/{component}/timeseries
+	if len(parts) >= 2 && parts[0] == "health" {
+		return parts[1]
+	}
+	
+	return ""
+}
+
+// hasTimeSeriesParams checks if any time-series parameters are provided in request
+func hasTimeSeriesParams(r *http.Request) bool {
+	query := r.URL.Query()
+	return query.Get("interval") != "" ||
+		query.Get("lookback") != "" ||
+		query.Get("lookahead") != "" ||
+		query.Get("date") != "" ||
+		query.Get("time") != ""
+}
+
+// parseTimeSeriesParamsWithDefaults parses parameters with default handling
+func parseTimeSeriesParamsWithDefaults(r *http.Request) (*TimeSeriesParams, error) {
+	params := &TimeSeriesParams{}
+	
+	// Parse interval parameter (required, but may be set by defaults)
+	intervalStr := r.URL.Query().Get("interval")
+	if intervalStr == "" {
+		return nil, fmt.Errorf("interval parameter is required")
+	}
+	interval, err := time.ParseDuration(intervalStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid interval duration: %v", err)
+	}
+	params.Interval = interval
+	
+	// Parse lookback parameter (optional)
+	lookbackStr := r.URL.Query().Get("lookback")
+	if lookbackStr != "" {
+		lookback, err := time.ParseDuration(lookbackStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid lookback duration: %v", err)
+		}
+		params.Lookback = &lookback
+	}
+	
+	// Parse lookahead parameter (optional)
+	lookaheadStr := r.URL.Query().Get("lookahead")
+	if lookaheadStr != "" {
+		lookahead, err := time.ParseDuration(lookaheadStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid lookahead duration: %v", err)
+		}
+		params.Lookahead = &lookahead
+	}
+	
+	// Parse date parameter (optional, defaults to today)
+	dateStr := r.URL.Query().Get("date")
+	if dateStr != "" {
+		date, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid date format, use YYYY-MM-DD: %v", err)
+		}
+		params.Date = &date
+	}
+	
+	// Parse time parameter (optional, defaults to current time)
+	timeStr := r.URL.Query().Get("time")
+	if timeStr != "" {
+		// Parse time in HH:MM:SS format
+		timeParts := strings.Split(timeStr, ":")
+		if len(timeParts) < 2 || len(timeParts) > 3 {
+			return nil, fmt.Errorf("invalid time format, use HH:MM:SS or HH:MM")
+		}
+		
+		hour, err := strconv.Atoi(timeParts[0])
+		if err != nil || hour < 0 || hour > 23 {
+			return nil, fmt.Errorf("invalid hour: %s", timeParts[0])
+		}
+		
+		minute, err := strconv.Atoi(timeParts[1])
+		if err != nil || minute < 0 || minute > 59 {
+			return nil, fmt.Errorf("invalid minute: %s", timeParts[1])
+		}
+		
+		second := 0
+		if len(timeParts) == 3 {
+			second, err = strconv.Atoi(timeParts[2])
+			if err != nil || second < 0 || second > 59 {
+				return nil, fmt.Errorf("invalid second: %s", timeParts[2])
+			}
+		}
+		
+		// Create time on a fixed date (will be combined with date later)
+		parsedTime := time.Date(2000, 1, 1, hour, minute, second, 0, time.UTC)
+		params.Time = &parsedTime
+	}
+	
+	return params, nil
 }

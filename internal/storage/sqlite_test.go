@@ -48,7 +48,7 @@ func TestSQLiteBackend_WriteAndReadMetrics(t *testing.T) {
 	now := time.Now().Truncate(time.Minute) // Use minute precision for time windows
 	timeKey := now.Format("20060102150400")
 	
-	tsMetrics := []TimeSeriesEntry{
+	tsMetrics := []MetricsDataEntry{
 		{
 			TimeWindowKey: timeKey,
 			Component:     "test",
@@ -70,7 +70,7 @@ func TestSQLiteBackend_WriteAndReadMetrics(t *testing.T) {
 	}
 
 	// Write time series metrics
-	err := backend.WriteTimeSeriesMetrics(tsMetrics)
+	err := backend.WriteMetricsData(tsMetrics)
 	if err != nil {
 		t.Fatalf("Failed to write time series metrics: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestSQLiteBackend_ReadMetricsAllComponents(t *testing.T) {
 	now := time.Now().Truncate(time.Minute)
 	timeKey := now.Format("20060102150400")
 	
-	tsMetrics := []TimeSeriesEntry{
+	tsMetrics := []MetricsDataEntry{
 		{
 			TimeWindowKey: timeKey,
 			Component:     "comp1", 
@@ -143,7 +143,7 @@ func TestSQLiteBackend_ReadMetricsAllComponents(t *testing.T) {
 		},
 	}
 
-	err := backend.WriteTimeSeriesMetrics(tsMetrics)
+	err := backend.WriteMetricsData(tsMetrics)
 	if err != nil {
 		t.Fatalf("Failed to write time series metrics: %v", err)
 	}

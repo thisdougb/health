@@ -19,26 +19,26 @@ func (m *MockAdminState) GetStorageManager() *storage.Manager {
 	return m.manager
 }
 
-// setupTestData creates test data in the storage backend
-func setupTestData(backend storage.Backend) error {
+// setupTestData creates test data in the storage manager
+func setupTestData(manager *storage.Manager) error {
 	// Create test metrics with timestamps spread over a few hours
 	baseTime := time.Now().Add(-2 * time.Hour)
 	
 	testMetrics := []storage.MetricEntry{
 		// Global component metrics
-		{Timestamp: baseTime, Component: "Global", Name: "requests", Value: 10, Type: "counter"},
-		{Timestamp: baseTime.Add(30 * time.Minute), Component: "Global", Name: "requests", Value: 25, Type: "counter"},
-		{Timestamp: baseTime.Add(60 * time.Minute), Component: "Global", Name: "requests", Value: 40, Type: "counter"},
+		{Timestamp: baseTime, Component: "Global", Name: "requests", Value: 10, Type: "value"},
+		{Timestamp: baseTime.Add(30 * time.Minute), Component: "Global", Name: "requests", Value: 25, Type: "value"},
+		{Timestamp: baseTime.Add(60 * time.Minute), Component: "Global", Name: "requests", Value: 40, Type: "value"},
 		
 		// Web server component metrics
-		{Timestamp: baseTime, Component: "webserver", Name: "http_requests", Value: 100, Type: "counter"},
+		{Timestamp: baseTime, Component: "webserver", Name: "http_requests", Value: 100, Type: "value"},
 		{Timestamp: baseTime.Add(30 * time.Minute), Component: "webserver", Name: "response_time", Value: 145.2, Type: "value"},
 		{Timestamp: baseTime.Add(60 * time.Minute), Component: "webserver", Name: "response_time", Value: 162.8, Type: "value"},
 		
 		// Database component metrics
-		{Timestamp: baseTime, Component: "database", Name: "queries", Value: 50, Type: "counter"},
+		{Timestamp: baseTime, Component: "database", Name: "queries", Value: 50, Type: "value"},
 		{Timestamp: baseTime.Add(45 * time.Minute), Component: "database", Name: "query_time", Value: 23.5, Type: "value"},
-		{Timestamp: baseTime.Add(90 * time.Minute), Component: "database", Name: "connections", Value: 15, Type: "counter"},
+		{Timestamp: baseTime.Add(90 * time.Minute), Component: "database", Name: "connections", Value: 15, Type: "value"},
 		
 		// System component metrics
 		{Timestamp: baseTime, Component: "system", Name: "cpu_percent", Value: 25.5, Type: "value"},
@@ -47,7 +47,20 @@ func setupTestData(backend storage.Backend) error {
 		{Timestamp: baseTime.Add(90 * time.Minute), Component: "system", Name: "goroutines", Value: 25, Type: "value"},
 	}
 	
-	return backend.WriteMetrics(testMetrics)
+	// Queue raw metrics for processing
+	err := manager.PersistMetrics(testMetrics)
+	if err != nil {
+		return fmt.Errorf("PersistMetrics failed: %w", err)
+	}
+	
+	// Force flush to ensure data is processed through universal queue
+	// This is necessary because queue processes data asynchronously
+	err = manager.ForceFlush()
+	if err != nil {
+		return fmt.Errorf("ForceFlush failed: %w", err)
+	}
+	
+	return nil
 }
 
 func TestExtractMetricsByTimeRange(t *testing.T) {
@@ -55,18 +68,38 @@ func TestExtractMetricsByTimeRange(t *testing.T) {
 	backend := storage.NewMemoryBackend()
 	defer backend.Close()
 	
-	// Setup test data
-	if err := setupTestData(backend); err != nil {
-		t.Fatalf("Failed to setup test data: %v", err)
-	}
-	
 	// Create mock admin state
 	manager := storage.NewManager(backend, true)
 	admin := &MockAdminState{manager: manager}
 	
+	// Setup test data
+	if err := setupTestData(manager); err != nil {
+		t.Fatalf("Failed to setup test data: %v", err)
+	}
+	t.Logf("Debug: Setup test data completed")
+	
 	// Test extracting metrics for webserver component
 	start := time.Now().Add(-3 * time.Hour)
 	end := time.Now()
+	
+	t.Logf("Debug: Query range from %v to %v", start, end)
+	
+	// Debug: Check if we can read metrics directly from manager
+	metrics, debugErr := manager.ReadMetrics("webserver", start, end)
+	if debugErr != nil {
+		t.Fatalf("Debug ReadMetrics failed: %v", debugErr)
+	}
+	t.Logf("Debug: Found %d metrics for webserver", len(metrics))
+	for i, m := range metrics {
+		t.Logf("Debug: webserver metric %d: name=%s, type=%s, value=%v", i, m.Name, m.Type, m.Value)
+	}
+	
+	// Debug: Try reading all components
+	allMetrics, debugErr2 := manager.ReadMetrics("", start, end)
+	if debugErr2 != nil {
+		t.Fatalf("Debug ReadMetrics (all) failed: %v", debugErr2)
+	}
+	t.Logf("Debug: Found %d total metrics", len(allMetrics))
 	
 	result, err := ExtractMetricsByTimeRange(admin, "webserver", start, end)
 	if err != nil {
@@ -96,11 +129,11 @@ func TestExtractMetricsByTimeRange(t *testing.T) {
 		}
 	}
 	
-	// Verify specific metric content
+	// Verify specific metric content (all metrics are now value metrics)
 	foundHTTPRequests := false
 	foundResponseTime := false
 	for _, metric := range componentData.Metrics {
-		if metric.Name == "http_requests" && metric.Type == "counter" {
+		if metric.Name == "http_requests" && metric.Type == "value" {
 			foundHTTPRequests = true
 		}
 		if metric.Name == "response_time" && metric.Type == "value" {
@@ -109,7 +142,7 @@ func TestExtractMetricsByTimeRange(t *testing.T) {
 	}
 	
 	if !foundHTTPRequests {
-		t.Error("Expected to find 'http_requests' counter metric")
+		t.Error("Expected to find 'http_requests' value metric")
 	}
 	if !foundResponseTime {
 		t.Error("Expected to find 'response_time' value metric")
@@ -146,12 +179,12 @@ func TestExportAllMetrics(t *testing.T) {
 	backend := storage.NewMemoryBackend()
 	defer backend.Close()
 	
-	if err := setupTestData(backend); err != nil {
-		t.Fatalf("Failed to setup test data: %v", err)
-	}
-	
 	manager := storage.NewManager(backend, true)
 	admin := &MockAdminState{manager: manager}
+	
+	if err := setupTestData(manager); err != nil {
+		t.Fatalf("Failed to setup test data: %v", err)
+	}
 	
 	start := time.Now().Add(-3 * time.Hour)
 	end := time.Now()
@@ -225,12 +258,12 @@ func TestListAvailableComponents(t *testing.T) {
 	backend := storage.NewMemoryBackend()
 	defer backend.Close()
 	
-	if err := setupTestData(backend); err != nil {
-		t.Fatalf("Failed to setup test data: %v", err)
-	}
-	
 	manager := storage.NewManager(backend, true)
 	admin := &MockAdminState{manager: manager}
+	
+	if err := setupTestData(manager); err != nil {
+		t.Fatalf("Failed to setup test data: %v", err)
+	}
 	
 	components, err := ListAvailableComponents(admin)
 	if err != nil {
@@ -267,12 +300,12 @@ func TestGetHealthSummary(t *testing.T) {
 	backend := storage.NewMemoryBackend()
 	defer backend.Close()
 	
-	if err := setupTestData(backend); err != nil {
-		t.Fatalf("Failed to setup test data: %v", err)
-	}
-	
 	manager := storage.NewManager(backend, true)
 	admin := &MockAdminState{manager: manager}
+	
+	if err := setupTestData(manager); err != nil {
+		t.Fatalf("Failed to setup test data: %v", err)
+	}
 	
 	start := time.Now().Add(-3 * time.Hour)
 	end := time.Now()
@@ -327,17 +360,14 @@ func TestGetHealthSummary(t *testing.T) {
 		if compSummary.Component == "webserver" {
 			foundWebserver = true
 			
-			// Should have both counters and values
-			if compSummary.Counters == nil {
-				t.Error("Expected webserver to have counter metrics")
-			}
+			// Should have value metrics (all metrics are now values)
 			if compSummary.Values == nil {
 				t.Error("Expected webserver to have value metrics")
 			}
 			
-			// Check specific metrics
-			if _, exists := compSummary.Counters["http_requests"]; !exists {
-				t.Error("Expected 'http_requests' counter in webserver summary")
+			// Check specific metrics - all are now value metrics with statistical aggregation
+			if _, exists := compSummary.Values["http_requests"]; !exists {
+				t.Error("Expected 'http_requests' value in webserver summary")
 			}
 			
 			if _, exists := compSummary.Values["response_time"]; !exists {
@@ -362,12 +392,18 @@ func TestGetHealthSummary_SystemHealthIndicator(t *testing.T) {
 		{Timestamp: baseTime.Add(30 * time.Minute), Component: "system", Name: "memory_bytes", Value: 2000000000, Type: "value"}, // 2GB
 	}
 	
-	if err := backend.WriteMetrics(highResourceMetrics); err != nil {
-		t.Fatalf("Failed to setup high resource test data: %v", err)
-	}
-	
 	manager := storage.NewManager(backend, true)
 	admin := &MockAdminState{manager: manager}
+	
+	// Use manager to queue and process the metrics properly
+	if err := manager.PersistMetrics(highResourceMetrics); err != nil {
+		t.Fatalf("Failed to persist high resource test data: %v", err)
+	}
+	
+	// Force flush to ensure data is processed
+	if err := manager.ForceFlush(); err != nil {
+		t.Fatalf("Failed to flush high resource test data: %v", err)
+	}
 	
 	start := time.Now().Add(-2 * time.Hour)
 	end := time.Now()
@@ -423,9 +459,9 @@ func BenchmarkExtractMetricsByTimeRange(b *testing.B) {
 	backend := storage.NewMemoryBackend()
 	defer backend.Close()
 	
-	setupTestData(backend)
 	manager := storage.NewManager(backend, true)
 	admin := &MockAdminState{manager: manager}
+	setupTestData(manager)
 	
 	start := time.Now().Add(-1 * time.Hour)
 	end := time.Now()
@@ -443,9 +479,9 @@ func BenchmarkGetHealthSummary(b *testing.B) {
 	backend := storage.NewMemoryBackend()
 	defer backend.Close()
 	
-	setupTestData(backend)
 	manager := storage.NewManager(backend, true)
 	admin := &MockAdminState{manager: manager}
+	setupTestData(manager)
 	
 	start := time.Now().Add(-1 * time.Hour)
 	end := time.Now()
@@ -464,12 +500,12 @@ func TestJSONOutputStructure(t *testing.T) {
 	backend := storage.NewMemoryBackend()
 	defer backend.Close()
 	
-	if err := setupTestData(backend); err != nil {
-		t.Fatalf("Failed to setup test data: %v", err)
-	}
-	
 	manager := storage.NewManager(backend, true)
 	admin := &MockAdminState{manager: manager}
+	
+	if err := setupTestData(manager); err != nil {
+		t.Fatalf("Failed to setup test data: %v", err)
+	}
 	
 	start := time.Now().Add(-3 * time.Hour)
 	end := time.Now()

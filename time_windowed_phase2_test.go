@@ -118,8 +118,8 @@ func TestMemoryBackendTimeSeriesSupport(t *testing.T) {
 	backend := storage.NewMemoryBackend()
 	defer backend.Close()
 	
-	// Test writing time series entries
-	entries := []storage.TimeSeriesEntry{
+	// Test writing metrics data entries
+	entries := []storage.MetricsDataEntry{
 		{
 			TimeWindowKey: "20250810143000",
 			Component:     "test",
@@ -131,9 +131,9 @@ func TestMemoryBackendTimeSeriesSupport(t *testing.T) {
 		},
 	}
 	
-	err := backend.WriteTimeSeriesMetrics(entries)
+	err := backend.WriteMetricsData(entries)
 	if err != nil {
-		t.Errorf("Failed to write time series metrics to memory backend: %v", err)
+		t.Errorf("Failed to write metrics data to memory backend: %v", err)
 	}
 	
 	t.Log("Memory backend time series support test passed")

@@ -7,17 +7,35 @@ import (
 	"github.com/thisdougb/health/internal/config"
 )
 
-// Manager coordinates persistence operations between the State system and storage backends
+// Manager coordinates persistence operations between the State system and storage backends.
+// Uses a universal queue for consistent processing across all backend types.
 type Manager struct {
-	backend      Backend
-	enabled      bool
-	backupConfig BackupConfig
+	backend      Backend         // The configured storage backend (memory, SQLite, etc.)
+	queue        *MetricsQueue   // Universal queue that handles all processing
+	enabled      bool           // Whether persistence is enabled
+	backupConfig BackupConfig   // Backup configuration settings
 }
 
-// NewManager creates a new persistence manager
+// NewManager creates a new persistence manager with universal queue.
+// The queue ensures consistent processing regardless of backend type (memory, SQLite, etc.).
+// Automatically starts the queue for background processing.
 func NewManager(backend Backend, enabled bool) *Manager {
+	var queue *MetricsQueue
+	
+	if enabled && backend != nil {
+		// Create universal queue with default settings
+		// These should match SQLite queue settings for consistency
+		flushInterval := 60 * time.Second
+		batchSize := 100
+		
+		queue = NewMetricsQueue(backend, flushInterval, batchSize)
+		// Start background processing
+		queue.Start()
+	}
+	
 	return &Manager{
 		backend: backend,
+		queue:   queue,
 		enabled: enabled,
 	}
 }
@@ -73,9 +91,10 @@ func NewManagerFromConfig() (*Manager, error) {
 	return manager, nil
 }
 
-// PersistMetric persists a single metric if persistence is enabled
+// PersistMetric queues a single raw metric for processing and storage.
+// The universal queue handles aggregation and backend operations.
 func (m *Manager) PersistMetric(component, name string, value interface{}, metricType string) error {
-	if !m.enabled || m.backend == nil {
+	if !m.enabled || m.queue == nil {
 		return nil // Persistence disabled, no-op
 	}
 
@@ -87,25 +106,29 @@ func (m *Manager) PersistMetric(component, name string, value interface{}, metri
 		Type:      metricType,
 	}
 
-	return m.backend.WriteMetrics([]MetricEntry{entry})
+	// Queue handles all processing - no direct backend calls
+	return m.queue.Enqueue([]MetricEntry{entry})
 }
 
-// PersistMetrics persists multiple metrics in batch if persistence is enabled
+// PersistMetrics queues raw metrics for processing and storage.
+// The universal queue handles aggregation and backend storage operations.
+// This ensures consistent behavior across all backend types.
 func (m *Manager) PersistMetrics(entries []MetricEntry) error {
-	if !m.enabled || m.backend == nil {
+	if !m.enabled || m.queue == nil {
 		return nil // Persistence disabled, no-op
 	}
 
-	return m.backend.WriteMetrics(entries)
+	// Queue handles all processing - no direct backend calls
+	return m.queue.Enqueue(entries)
 }
 
-// PersistTimeSeriesMetrics persists aggregated time series metrics if persistence is enabled
-func (m *Manager) PersistTimeSeriesMetrics(entries []TimeSeriesEntry) error {
+// PersistMetricsData persists aggregated metrics data if persistence is enabled
+func (m *Manager) PersistMetricsData(entries []MetricsDataEntry) error {
 	if !m.enabled || m.backend == nil {
 		return nil // Persistence disabled, no-op
 	}
 
-	return m.backend.WriteTimeSeriesMetrics(entries)
+	return m.backend.WriteMetricsData(entries)
 }
 
 // ReadMetrics retrieves metrics from storage
@@ -126,18 +149,25 @@ func (m *Manager) ListComponents() ([]string, error) {
 	return m.backend.ListComponents()
 }
 
-// Close gracefully shuts down the persistence manager and flushes any pending data
+// Close gracefully shuts down the persistence manager.
+// Stops the universal queue, flushes pending data, creates backups, and closes backend.
 func (m *Manager) Close() error {
+	// Stop universal queue first to ensure all data is processed
+	if m.queue != nil {
+		m.queue.Stop() // This flushes pending data
+	}
+	
 	// Event-driven backup on shutdown
 	if m.backupConfig.Enabled && m.enabled && m.backend != nil {
 		_ = m.createBackupInternal() // Best effort, don't fail on error during shutdown
 	}
 
-	if !m.enabled || m.backend == nil {
-		return nil // Nothing to close
+	// Close backend connection
+	if m.enabled && m.backend != nil {
+		return m.backend.Close()
 	}
-
-	return m.backend.Close()
+	
+	return nil
 }
 
 // IsEnabled returns whether persistence is enabled
@@ -190,18 +220,14 @@ func (m *Manager) GetBackupInfo() map[string]interface{} {
 	return GetBackupRetentionInfo(&m.backupConfig)
 }
 
-// ForceFlush immediately flushes any queued metrics to storage (for testing)
+// ForceFlush immediately processes any queued metrics to storage.
+// This works consistently across all backend types via the universal queue.
+// Useful for testing to ensure metrics are immediately available.
 func (m *Manager) ForceFlush() error {
-	if !m.enabled || m.backend == nil {
+	if !m.enabled || m.queue == nil {
 		return nil // Nothing to flush
 	}
 
-	// Only SQLite backend has a queue to flush
-	sqliteBackend, ok := m.backend.(*SQLiteBackend)
-	if !ok {
-		return nil // Memory backend, no queue to flush
-	}
-
-	// Force flush the queue
-	return sqliteBackend.queue.ForceFlush()
+	// Universal queue works with all backends consistently
+	return m.queue.ForceFlush()
 }

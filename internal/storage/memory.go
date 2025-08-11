@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -8,23 +9,35 @@ import (
 	"github.com/thisdougb/health/internal/config"
 )
 
-// MemoryBackend implements Backend interface using in-memory storage
+// MemoryBackend implements Backend interface using in-memory storage.
+// This is a simple CRUD backend that only handles storage operations.
+// All processing logic is handled by the universal queue before calling this backend.
 type MemoryBackend struct {
-	mu              sync.RWMutex
-	metrics         []MetricEntry
-	timeSeriesData  []TimeSeriesEntry
+	mu      sync.RWMutex
+	storage []MetricsDataEntry  // Primary in-memory storage for processed metrics data
 }
 
-// NewMemoryBackend creates a new in-memory storage backend
+// NewMemoryBackend creates a new in-memory storage backend.
+// Returns a clean backend ready for CRUD operations.
 func NewMemoryBackend() *MemoryBackend {
 	return &MemoryBackend{
-		metrics:        make([]MetricEntry, 0),
-		timeSeriesData: make([]TimeSeriesEntry, 0),
+		storage: make([]MetricsDataEntry, 0),
 	}
 }
 
-// WriteMetrics stores metrics in memory
+// WriteMetrics is not used by memory backend - raw metrics are processed by queue.
+// This method exists to satisfy the Backend interface but should not be called.
+// The universal queue handles raw metrics and calls WriteMetricsData with processed data.
 func (m *MemoryBackend) WriteMetrics(metrics []MetricEntry) error {
+	// Memory backend only handles processed data via WriteMetricsData
+	// Raw metrics should be handled by the universal queue
+	return fmt.Errorf("memory backend only accepts processed data via WriteMetricsData")
+}
+
+// WriteMetricsData stores processed metrics data in memory storage.
+// This is a simple CRUD operation - data has already been aggregated by the queue.
+// Thread-safe storage of processed metrics for later retrieval.
+func (m *MemoryBackend) WriteMetricsData(metrics []MetricsDataEntry) error {
 	if len(metrics) == 0 {
 		return nil
 	}
@@ -32,72 +45,60 @@ func (m *MemoryBackend) WriteMetrics(metrics []MetricEntry) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.metrics = append(m.metrics, metrics...)
+	// Simple append operation - queue has already done all processing
+	m.storage = append(m.storage, metrics...)
 	return nil
 }
 
-// WriteTimeSeriesMetrics stores aggregated time series metrics in memory
-func (m *MemoryBackend) WriteTimeSeriesMetrics(metrics []TimeSeriesEntry) error {
-	if len(metrics) == 0 {
-		return nil
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.timeSeriesData = append(m.timeSeriesData, metrics...)
-	return nil
-}
-
-// ReadMetrics retrieves aggregated time series metrics for a component within the time range
+// ReadMetrics retrieves stored metrics for a component within the time range.
+// This is a simple CRUD read operation that queries the processed storage.
+// Converts stored MetricsDataEntry back to MetricEntry format for compatibility.
 func (m *MemoryBackend) ReadMetrics(component string, start, end time.Time) ([]MetricEntry, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	// Convert time range to time window keys for filtering
+	// Convert time range to window keys for filtering
 	startKey := timeToWindowKey(start)
 	endKey := timeToWindowKey(end)
 
 	var result []MetricEntry
-	for _, tsEntry := range m.timeSeriesData {
+
+	// Query processed storage data
+	for _, storedEntry := range m.storage {
 		// Filter by component (empty string matches all components)
-		if component != "" && tsEntry.Component != component {
+		if component != "" && storedEntry.Component != component {
 			continue
 		}
 
 		// Filter by time window key range
-		if tsEntry.TimeWindowKey < startKey || tsEntry.TimeWindowKey > endKey {
+		if storedEntry.TimeWindowKey < startKey || storedEntry.TimeWindowKey > endKey {
 			continue
 		}
 
 		// Convert time window key back to timestamp
-		timestamp, err := windowKeyToTime(tsEntry.TimeWindowKey)
+		timestamp, err := windowKeyToTime(storedEntry.TimeWindowKey)
 		if err != nil {
 			continue // Skip invalid time keys
 		}
 
-		// Create MetricEntry with aggregated data
+		// Convert processed data back to MetricEntry format for compatibility
 		var value interface{}
 		var metricType string
-		if tsEntry.MinValue == 1.0 && tsEntry.MaxValue == 1.0 && tsEntry.AvgValue == 1.0 {
-			// Counter metric - use count
-			value = tsEntry.Count
-			metricType = "counter"
-		} else {
-			// Value metric - provide full statistics
-			value = map[string]interface{}{
-				"avg":   tsEntry.AvgValue,
-				"min":   tsEntry.MinValue, 
-				"max":   tsEntry.MaxValue,
-				"count": tsEntry.Count,
-			}
-			metricType = "value"
-		}
 
+		// All metrics are value metrics with statistical aggregation
+		value = map[string]interface{}{
+			"avg":   storedEntry.AvgValue,
+			"min":   storedEntry.MinValue, 
+			"max":   storedEntry.MaxValue,
+			"count": storedEntry.Count,
+		}
+		metricType = "value"
+
+		// Create MetricEntry from stored aggregated data
 		entry := MetricEntry{
 			Timestamp: timestamp,
-			Component: tsEntry.Component,
-			Name:      tsEntry.Metric,
+			Component: storedEntry.Component,
+			Name:      storedEntry.Metric,
 			Value:     value,
 			Type:      metricType,
 		}
@@ -112,16 +113,19 @@ func (m *MemoryBackend) ReadMetrics(component string, start, end time.Time) ([]M
 	return result, nil
 }
 
-// ListComponents returns all unique component names
+// ListComponents returns all unique component names from stored data.
+// This is a simple CRUD read operation that queries processed storage for component names.
 func (m *MemoryBackend) ListComponents() ([]string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	// Build unique set of component names from processed storage
 	componentSet := make(map[string]bool)
-	for _, metric := range m.metrics {
-		componentSet[metric.Component] = true
+	for _, entry := range m.storage {
+		componentSet[entry.Component] = true
 	}
 
+	// Convert set to sorted slice
 	components := make([]string, 0, len(componentSet))
 	for component := range componentSet {
 		components = append(components, component)
@@ -131,27 +135,28 @@ func (m *MemoryBackend) ListComponents() ([]string, error) {
 	return components, nil
 }
 
-// Close performs cleanup (no-op for memory backend)
+// Close performs cleanup for memory backend
 func (m *MemoryBackend) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.metrics = nil
+	// Clear storage
+	m.storage = nil
 	return nil
 }
 
-// Len returns the number of stored metrics (for testing)
+// Len returns the number of stored metrics entries (for testing)
 func (m *MemoryBackend) Len() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return len(m.metrics)
+	return len(m.storage)
 }
 
 // Clear removes all stored metrics (for testing)
 func (m *MemoryBackend) Clear() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.metrics = m.metrics[:0]
+	m.storage = m.storage[:0]
 }
 
 // timeToWindowKey converts a timestamp to a time window key format

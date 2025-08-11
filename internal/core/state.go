@@ -363,15 +363,15 @@ func (s *StateImpl) flushToDB() {
 		return
 	}
 	
-	var timeSeriesEntries []storage.TimeSeriesEntry
+	var metricsDataEntries []storage.MetricsDataEntry
 	
 	for component, timeWindows := range s.FlushQueue {
 		for timekey, metrics := range timeWindows {
 			for metric, values := range metrics {
 				min, max, avg, count := calculateStats(values)
 				
-				// Create time series entry using timekey directly
-				entry := storage.TimeSeriesEntry{
+				// Create metrics data entry using timekey directly
+				entry := storage.MetricsDataEntry{
 					TimeWindowKey: timekey, // Already in YYYYMMDDHHMMSS format
 					Component:     component,
 					Metric:        metric,
@@ -381,16 +381,16 @@ func (s *StateImpl) flushToDB() {
 					Count:         count,
 				}
 				
-				timeSeriesEntries = append(timeSeriesEntries, entry)
+				metricsDataEntries = append(metricsDataEntries, entry)
 			}
 		}
 	}
 	
-	// Write all time series entries to storage backend
-	if len(timeSeriesEntries) > 0 {
-		if err := s.persistence.PersistTimeSeriesMetrics(timeSeriesEntries); err != nil {
+	// Write all metrics data entries to storage backend
+	if len(metricsDataEntries) > 0 {
+		if err := s.persistence.PersistMetricsData(metricsDataEntries); err != nil {
 			// Log error but continue - flush operations should be resilient
-			fmt.Printf("Warning: Failed to write time series metrics: %v\n", err)
+			fmt.Printf("Warning: Failed to write metrics data: %v\n", err)
 		}
 	}
 	

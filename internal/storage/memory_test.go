@@ -17,49 +17,79 @@ func TestNewMemoryBackend(t *testing.T) {
 	}
 }
 
-func TestWriteMetrics(t *testing.T) {
+func TestWriteMetrics_ShouldFail(t *testing.T) {
+	backend := NewMemoryBackend()
+	now := time.Now()
+
+	// Memory backend should reject raw metrics and require processed data
+	metrics := []MetricEntry{
+		{
+			Timestamp: now,
+			Component: "test",
+			Name:      "counter",
+			Value:     42,
+			Type:      "value",
+		},
+	}
+
+	err := backend.WriteMetrics(metrics)
+	if err == nil {
+		t.Error("Expected WriteMetrics to fail for memory backend, but it succeeded")
+	}
+	if backend.Len() != 0 {
+		t.Errorf("Expected 0 metrics after failed write, got %d", backend.Len())
+	}
+}
+
+func TestWriteMetricsData(t *testing.T) {
 	backend := NewMemoryBackend()
 	now := time.Now()
 
 	tests := []struct {
 		name     string
-		metrics  []MetricEntry
+		metrics  []MetricsDataEntry
 		expected int
 	}{
 		{
 			name:     "empty metrics",
-			metrics:  []MetricEntry{},
+			metrics:  []MetricsDataEntry{},
 			expected: 0,
 		},
 		{
 			name: "single metric",
-			metrics: []MetricEntry{
+			metrics: []MetricsDataEntry{
 				{
-					Timestamp: now,
-					Component: "test",
-					Name:      "counter",
-					Value:     42,
-					Type:      "counter",
+					TimeWindowKey: now.Format("20060102150400"),
+					Component:     "test",
+					Metric:        "requests",
+					MinValue:      1.0,
+					MaxValue:      1.0,
+					AvgValue:      1.0,
+					Count:         42,
 				},
 			},
 			expected: 1,
 		},
 		{
 			name: "multiple metrics",
-			metrics: []MetricEntry{
+			metrics: []MetricsDataEntry{
 				{
-					Timestamp: now,
-					Component: "web",
-					Name:      "requests",
-					Value:     100,
-					Type:      "counter",
+					TimeWindowKey: now.Format("20060102150400"),
+					Component:     "web",
+					Metric:        "requests",
+					MinValue:      100.0,
+					MaxValue:      100.0,
+					AvgValue:      100.0,
+					Count:         1,
 				},
 				{
-					Timestamp: now.Add(time.Second),
-					Component: "db",
-					Name:      "response_time",
-					Value:     15.5,
-					Type:      "rolling",
+					TimeWindowKey: now.Add(time.Minute).Format("20060102150400"),
+					Component:     "db",
+					Metric:        "response_time",
+					MinValue:      15.5,
+					MaxValue:      15.5,
+					AvgValue:      15.5,
+					Count:         1,
 				},
 			},
 			expected: 3, // 1 from previous test + 2 new
@@ -68,9 +98,9 @@ func TestWriteMetrics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := backend.WriteMetrics(tt.metrics)
+			err := backend.WriteMetricsData(tt.metrics)
 			if err != nil {
-				t.Errorf("WriteMetrics failed: %v", err)
+				t.Errorf("WriteMetricsData failed: %v", err)
 			}
 			if backend.Len() != tt.expected {
 				t.Errorf("Expected %d metrics, got %d", tt.expected, backend.Len())
@@ -84,7 +114,7 @@ func TestReadMetrics(t *testing.T) {
 	now := time.Now().Truncate(time.Minute)
 
 	// Setup time series test data
-	tsMetrics := []TimeSeriesEntry{
+	tsMetrics := []MetricsDataEntry{
 		{
 			TimeWindowKey: now.Add(-2 * time.Hour).Format("20060102150400"),
 			Component:     "web",
@@ -123,7 +153,7 @@ func TestReadMetrics(t *testing.T) {
 		},
 	}
 
-	err := backend.WriteTimeSeriesMetrics(tsMetrics)
+	err := backend.WriteMetricsData(tsMetrics)
 	if err != nil {
 		t.Fatalf("Failed to setup test data: %v", err)
 	}
@@ -183,18 +213,30 @@ func TestReadMetrics(t *testing.T) {
 				}
 			}
 
-			// Verify counter vs value metric types
+			// Verify all metrics return aggregated data (all are now value metrics)
 			for _, result := range results {
-				if result.Name == "hit_rate" {
-					// Value metric should have stats map
-					if _, ok := result.Value.(map[string]interface{}); !ok {
-						t.Errorf("Expected value metric %s to return stats map", result.Name)
-					}
+				// All metrics should have aggregated stats map
+				if statsMap, ok := result.Value.(map[string]interface{}); !ok {
+					t.Errorf("Expected metric %s to return stats map, got %T", result.Name, result.Value)
 				} else {
-					// Counter metrics should have integer count
-					if _, ok := result.Value.(int); !ok {
-						t.Errorf("Expected counter metric %s to return integer count", result.Name)
+					// Verify required fields exist
+					if _, hasAvg := statsMap["avg"]; !hasAvg {
+						t.Errorf("Expected metric %s stats to have 'avg' field", result.Name)
 					}
+					if _, hasMin := statsMap["min"]; !hasMin {
+						t.Errorf("Expected metric %s stats to have 'min' field", result.Name)
+					}
+					if _, hasMax := statsMap["max"]; !hasMax {
+						t.Errorf("Expected metric %s stats to have 'max' field", result.Name)
+					}
+					if _, hasCount := statsMap["count"]; !hasCount {
+						t.Errorf("Expected metric %s stats to have 'count' field", result.Name)
+					}
+				}
+				
+				// All metrics should have type "value" now
+				if result.Type != "value" {
+					t.Errorf("Expected metric %s to have type 'value', got '%s'", result.Name, result.Type)
 				}
 			}
 		})
@@ -214,15 +256,15 @@ func TestListComponents(t *testing.T) {
 		t.Errorf("Expected no components, got %v", components)
 	}
 
-	// Add test data
-	testMetrics := []MetricEntry{
-		{Timestamp: now, Component: "web", Name: "requests", Value: 1, Type: "counter"},
-		{Timestamp: now, Component: "db", Name: "queries", Value: 2, Type: "counter"},
-		{Timestamp: now, Component: "web", Name: "errors", Value: 3, Type: "counter"},
-		{Timestamp: now, Component: "cache", Name: "hits", Value: 4, Type: "counter"},
+	// Add test data using processed metrics format
+	testMetrics := []MetricsDataEntry{
+		{TimeWindowKey: now.Format("20060102150400"), Component: "web", Metric: "requests", MinValue: 1, MaxValue: 1, AvgValue: 1, Count: 1},
+		{TimeWindowKey: now.Format("20060102150400"), Component: "db", Metric: "queries", MinValue: 2, MaxValue: 2, AvgValue: 2, Count: 1},
+		{TimeWindowKey: now.Format("20060102150400"), Component: "web", Metric: "errors", MinValue: 3, MaxValue: 3, AvgValue: 3, Count: 1},
+		{TimeWindowKey: now.Format("20060102150400"), Component: "cache", Metric: "hits", MinValue: 4, MaxValue: 4, AvgValue: 4, Count: 1},
 	}
 
-	err = backend.WriteMetrics(testMetrics)
+	err = backend.WriteMetricsData(testMetrics)
 	if err != nil {
 		t.Fatalf("Failed to setup test data: %v", err)
 	}
@@ -244,11 +286,11 @@ func TestClose(t *testing.T) {
 	backend := NewMemoryBackend()
 	now := time.Now()
 
-	// Add some data
-	testMetrics := []MetricEntry{
-		{Timestamp: now, Component: "test", Name: "metric", Value: 1, Type: "counter"},
+	// Add some data using processed metrics format
+	testMetrics := []MetricsDataEntry{
+		{TimeWindowKey: now.Format("20060102150400"), Component: "test", Metric: "metric", MinValue: 1, MaxValue: 1, AvgValue: 1, Count: 1},
 	}
-	err := backend.WriteMetrics(testMetrics)
+	err := backend.WriteMetricsData(testMetrics)
 	if err != nil {
 		t.Fatalf("Failed to setup test data: %v", err)
 	}
@@ -271,12 +313,12 @@ func TestClear(t *testing.T) {
 	backend := NewMemoryBackend()
 	now := time.Now()
 
-	// Add some data
-	testMetrics := []MetricEntry{
-		{Timestamp: now, Component: "test", Name: "metric1", Value: 1, Type: "counter"},
-		{Timestamp: now, Component: "test", Name: "metric2", Value: 2, Type: "counter"},
+	// Add some data using processed metrics format
+	testMetrics := []MetricsDataEntry{
+		{TimeWindowKey: now.Format("20060102150400"), Component: "test", Metric: "metric1", MinValue: 1, MaxValue: 1, AvgValue: 1, Count: 1},
+		{TimeWindowKey: now.Format("20060102150400"), Component: "test", Metric: "metric2", MinValue: 2, MaxValue: 2, AvgValue: 2, Count: 1},
 	}
-	err := backend.WriteMetrics(testMetrics)
+	err := backend.WriteMetricsData(testMetrics)
 	if err != nil {
 		t.Fatalf("Failed to setup test data: %v", err)
 	}

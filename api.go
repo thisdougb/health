@@ -82,14 +82,13 @@ func (s *State) StatusHandler() http.HandlerFunc {
 	return handlers.StatusHandler(s.impl)
 }
 
-// HandleHealthRequest handles flexible health URL patterns with custom routing.
-// Integrates with external routers and middleware for complex routing scenarios.
-// Currently delegates to HealthHandler but designed for future URL pattern expansion.
+// HandleHealthRequest handles flexible health URL patterns with storage-backed queries.
+// Supports time-series parameters and optional component routing from URL path.
+// URL patterns: /health, /health/{component}, /health/{component}/timeseries
+// Query params: interval, lookback/lookahead, date, time (all optional)
+// Default when no time params: interval=1m, lookback=1h (past hour in 1-minute intervals)
 func (s *State) HandleHealthRequest(w http.ResponseWriter, r *http.Request) {
-	// For now, delegate to the basic health handler
-	// This can be extended later to support component-specific routing
-	handler := s.HealthHandler()
-	handler(w, r)
+	handlers.HandleHealthRequestUnified(s.impl, w, r)
 }
 
 // TimeSeriesHandler returns an HTTP handler for sar-style time series queries.

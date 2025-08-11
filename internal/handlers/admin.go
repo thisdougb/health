@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strconv"
 	"time"
 
 	"github.com/thisdougb/health/internal/storage"
@@ -58,14 +57,7 @@ type HealthSummary struct {
 type ComponentHealthSummary struct {
 	Component   string                     `json:"component"`
 	MetricCount int                        `json:"metric_count"`
-	Counters    map[string]CounterSummary  `json:"counters,omitempty"`
 	Values      map[string]ValueSummary    `json:"values,omitempty"`
-}
-
-// CounterSummary provides summary for counter metrics
-type CounterSummary struct {
-	Count int `json:"count"`
-	Total int `json:"total"`
 }
 
 // ValueSummary provides statistical summary for value metrics
@@ -299,42 +291,57 @@ func GetHealthSummary(admin AdminInterface, start, end time.Time) (string, error
 
 // generateComponentSummary creates a summary for a single component's metrics
 func generateComponentSummary(component string, metrics []storage.MetricEntry) ComponentHealthSummary {
-	counters := make(map[string]CounterSummary)
 	values := make(map[string]ValueSummary)
 
 	for _, metric := range metrics {
-		if metric.Type == "counter" {
-			if val, ok := metric.Value.(int); ok {
-				if summary, exists := counters[metric.Name]; exists {
-					summary.Count++
-					summary.Total += val
-					counters[metric.Name] = summary
-				} else {
-					counters[metric.Name] = CounterSummary{Count: 1, Total: val}
-				}
+		// All metrics are now value metrics with statistical data
+		// Handle aggregated value data from storage backend
+		switch v := metric.Value.(type) {
+		case map[string]interface{}:
+			// Aggregated data from storage backend (avg, min, max, count)
+			avg, _ := v["avg"].(float64)
+			min, _ := v["min"].(float64)
+			max, _ := v["max"].(float64)
+			count, _ := v["count"].(int)
+			
+			values[metric.Name] = ValueSummary{
+				Count: count,
+				Min:   min,
+				Max:   max,
+				Avg:   avg,
 			}
-		} else {
-			// Handle value metrics (float64)
+		case float64:
+			// Direct float64 value
+			if summary, exists := values[metric.Name]; exists {
+				summary.Count++
+				summary.Min = math.Min(summary.Min, v)
+				summary.Max = math.Max(summary.Max, v)
+				summary.Avg = ((summary.Avg * float64(summary.Count-1)) + v) / float64(summary.Count)
+				values[metric.Name] = summary
+			} else {
+				values[metric.Name] = ValueSummary{Count: 1, Min: v, Max: v, Avg: v}
+			}
+		case float32:
+			// Convert float32 to float64
+			val := float64(v)
+			if summary, exists := values[metric.Name]; exists {
+				summary.Count++
+				summary.Min = math.Min(summary.Min, val)
+				summary.Max = math.Max(summary.Max, val)
+				summary.Avg = ((summary.Avg * float64(summary.Count-1)) + val) / float64(summary.Count)
+				values[metric.Name] = summary
+			} else {
+				values[metric.Name] = ValueSummary{Count: 1, Min: val, Max: val, Avg: val}
+			}
+		case int, int64:
+			// Convert integer to float64
 			var val float64
-			switch v := metric.Value.(type) {
-			case float64:
-				val = v
-			case float32:
-				val = float64(v)
+			switch i := v.(type) {
 			case int:
-				val = float64(v)
+				val = float64(i)
 			case int64:
-				val = float64(v)
-			case string:
-				if parsed, err := strconv.ParseFloat(v, 64); err == nil {
-					val = parsed
-				} else {
-					continue // Skip unparseable values
-				}
-			default:
-				continue // Skip unsupported types
+				val = float64(i)
 			}
-
 			if summary, exists := values[metric.Name]; exists {
 				summary.Count++
 				summary.Min = math.Min(summary.Min, val)
@@ -348,12 +355,7 @@ func generateComponentSummary(component string, metrics []storage.MetricEntry) C
 	}
 
 	// Only include non-empty maps
-	var countersPtr map[string]CounterSummary
 	var valuesPtr map[string]ValueSummary
-
-	if len(counters) > 0 {
-		countersPtr = counters
-	}
 	if len(values) > 0 {
 		valuesPtr = values
 	}
@@ -361,7 +363,6 @@ func generateComponentSummary(component string, metrics []storage.MetricEntry) C
 	return ComponentHealthSummary{
 		Component:   component,
 		MetricCount: len(metrics),
-		Counters:    countersPtr,
 		Values:      valuesPtr,
 	}
 }
@@ -370,42 +371,84 @@ func generateComponentSummary(component string, metrics []storage.MetricEntry) C
 func generateSystemMetricsSummary(metrics []storage.MetricEntry) *SystemMetricsSummary {
 	summary := &SystemMetricsSummary{}
 
-	// Group metrics by name for aggregation
-	metricGroups := make(map[string][]float64)
+	// Process metrics similar to generateComponentSummary to handle aggregated data
+	values := make(map[string]ValueSummary)
 
 	for _, metric := range metrics {
-		var val float64
+		// Handle aggregated value data from storage backend (same as generateComponentSummary)
 		switch v := metric.Value.(type) {
+		case map[string]interface{}:
+			// Aggregated data from storage backend (avg, min, max, count)
+			avg, _ := v["avg"].(float64)
+			min, _ := v["min"].(float64)
+			max, _ := v["max"].(float64)
+			count, _ := v["count"].(int)
+			
+			values[metric.Name] = ValueSummary{
+				Count: count,
+				Min:   min,
+				Max:   max,
+				Avg:   avg,
+			}
 		case float64:
-			val = v
+			// Direct float64 value
+			if existing, exists := values[metric.Name]; exists {
+				existing.Count++
+				existing.Min = math.Min(existing.Min, v)
+				existing.Max = math.Max(existing.Max, v)
+				existing.Avg = ((existing.Avg * float64(existing.Count-1)) + v) / float64(existing.Count)
+				values[metric.Name] = existing
+			} else {
+				values[metric.Name] = ValueSummary{Count: 1, Min: v, Max: v, Avg: v}
+			}
 		case float32:
-			val = float64(v)
-		case int:
-			val = float64(v)
-		case int64:
-			val = float64(v)
-		default:
-			continue // Skip unsupported types
+			// Convert float32 to float64
+			val := float64(v)
+			if existing, exists := values[metric.Name]; exists {
+				existing.Count++
+				existing.Min = math.Min(existing.Min, val)
+				existing.Max = math.Max(existing.Max, val)
+				existing.Avg = ((existing.Avg * float64(existing.Count-1)) + val) / float64(existing.Count)
+				values[metric.Name] = existing
+			} else {
+				values[metric.Name] = ValueSummary{Count: 1, Min: val, Max: val, Avg: val}
+			}
+		case int, int64:
+			// Convert integer to float64
+			var val float64
+			switch i := v.(type) {
+			case int:
+				val = float64(i)
+			case int64:
+				val = float64(i)
+			}
+			if existing, exists := values[metric.Name]; exists {
+				existing.Count++
+				existing.Min = math.Min(existing.Min, val)
+				existing.Max = math.Max(existing.Max, val)
+				existing.Avg = ((existing.Avg * float64(existing.Count-1)) + val) / float64(existing.Count)
+				values[metric.Name] = existing
+			} else {
+				values[metric.Name] = ValueSummary{Count: 1, Min: val, Max: val, Avg: val}
+			}
 		}
-
-		metricGroups[metric.Name] = append(metricGroups[metric.Name], val)
 	}
 
-	// Generate summaries for each system metric
-	if vals, exists := metricGroups["cpu_percent"]; exists && len(vals) > 0 {
-		summary.CPUPercent = calculateValueSummary(vals)
+	// Map processed values to system metrics fields
+	if cpuSummary, exists := values["cpu_percent"]; exists {
+		summary.CPUPercent = &cpuSummary
 	}
-	if vals, exists := metricGroups["memory_bytes"]; exists && len(vals) > 0 {
-		summary.MemoryBytes = calculateValueSummary(vals)
+	if memSummary, exists := values["memory_bytes"]; exists {
+		summary.MemoryBytes = &memSummary
 	}
-	if vals, exists := metricGroups["health_data_size"]; exists && len(vals) > 0 {
-		summary.HealthDataSize = calculateValueSummary(vals)
+	if sizeSummary, exists := values["health_data_size"]; exists {
+		summary.HealthDataSize = &sizeSummary
 	}
-	if vals, exists := metricGroups["goroutines"]; exists && len(vals) > 0 {
-		summary.Goroutines = calculateValueSummary(vals)
+	if goroutinesSummary, exists := values["goroutines"]; exists {
+		summary.Goroutines = &goroutinesSummary
 	}
-	if vals, exists := metricGroups["uptime_seconds"]; exists && len(vals) > 0 {
-		summary.UptimeSeconds = calculateValueSummary(vals)
+	if uptimeSummary, exists := values["uptime_seconds"]; exists {
+		summary.UptimeSeconds = &uptimeSummary
 	}
 
 	return summary

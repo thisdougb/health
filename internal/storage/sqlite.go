@@ -81,9 +81,9 @@ func (s *SQLiteBackend) WriteMetrics(metrics []MetricEntry) error {
 	return s.queue.Enqueue(metrics)
 }
 
-// WriteTimeSeriesMetrics writes aggregated time series metrics directly to SQLite
+// WriteMetricsData writes aggregated metrics data directly to SQLite
 // This bypasses the queue since these are already aggregated and ready for storage
-func (s *SQLiteBackend) WriteTimeSeriesMetrics(metrics []TimeSeriesEntry) error {
+func (s *SQLiteBackend) WriteMetricsData(metrics []MetricsDataEntry) error {
 	if len(metrics) == 0 {
 		return nil
 	}
