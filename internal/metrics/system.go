@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"context"
-	"log"
 	"runtime"
 	"time"
 	"unsafe"
@@ -90,8 +89,6 @@ func (sc *SystemCollector) collectLoop() {
 
 // collectSystemMetrics gathers all system metrics and records them
 func (sc *SystemCollector) collectSystemMetrics() {
-	timestamp := time.Now()
-
 	// CPU utilization percentage - simplified approach using runtime stats
 	cpuPercent := sc.getCPUPercent()
 	sc.state.AddMetric("system", "cpu_percent", cpuPercent)

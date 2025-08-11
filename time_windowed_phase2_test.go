@@ -3,7 +3,6 @@ package health
 import (
 	"os"
 	"testing"
-	"time"
 
 	"github.com/thisdougb/health/internal/core"
 	"github.com/thisdougb/health/internal/storage"
@@ -37,14 +36,14 @@ func TestTimeWindowedMetricsPhase2(t *testing.T) {
 	state.AddMetric("Global", "response_time", 150.5)
 	state.AddMetric("webserver", "cpu_usage", 45.2)
 
-	// Wait for the time window to change and trigger flush
-	time.Sleep(2 * time.Second)
+	// Manually trigger flush to move metrics to flush queue
+	state.MoveToFlushQueueManual()
 
-	// Add more metrics in a new time window
+	// Add more metrics (these will be in the active window)
 	state.IncrMetric("requests")
 	state.AddMetric("Global", "response_time", 125.8)
 
-	// Manually trigger flush to ensure data is processed
+	// Trigger another flush to ensure all data is processed
 	state.MoveToFlushQueueManual() // We'll need to expose this for testing
 	
 	// Verify that the storage backend received time series data
