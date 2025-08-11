@@ -2,16 +2,17 @@
 
 ## Overview
 
-The health package provides a simple, thread-safe metrics collection system designed for containerized applications. The package is organized by core capabilities:
+The health package provides a sophisticated time-windowed metrics collection system with statistical aggregation designed for AI-first problem resolution. The package is organized by core capabilities:
 
-1. **Data Methods** - Core metrics recording (global and component-based)
-2. **Data Access** - Web request handling with flexible URL patterns
-3. **Storage Models** - Memory-only or SQLite persistence with background sync
-4. **Data Management** - Retention policies, backup integration, and automated cleanup
+1. **Data Methods** - Time-windowed metrics recording with counter and raw value collection
+2. **Data Access** - HTTP handlers for health endpoints and time-series queries
+3. **Storage Models** - Memory-first approach with SQLite persistence and move-and-flush architecture
+4. **System Metrics** - Automatic system resource monitoring with background collection
+5. **Data Management** - Statistical aggregation, backup integration, and automated cleanup
 
 ## Core Components
 
-### 1. Data Methods (Metrics Recording)
+### 1. Data Methods (Time-Windowed Metrics Recording)
 
 #### State Struct (`internal/core/state.go`)
 
@@ -34,16 +35,23 @@ type StateImpl struct {
 
 #### Metric Recording Methods
 
-**Counter Metrics (stored in memory + persisted):**
+**Counter Metrics (memory-stored, included in JSON output):**
 ```go
 func (s *State) IncrMetric(name string)                       // Global counters
 func (s *State) IncrComponentMetric(component, name string)   // Component counters
 ```
 
-**Raw Value Metrics (persisted to storage backend):**
+**Raw Value Metrics (queued for time-series persistence with statistical aggregation):**
 ```go
-func (s *State) AddMetric(name string, value float64)                    // Global values
-func (s *State) AddComponentMetric(component, name string, value float64) // Component values
+func (s *State) AddMetric(name string, value float64)                    // Global raw values
+func (s *State) AddComponentMetric(component, name string, value float64) // Component raw values
+```
+
+**HTTP Handlers:**
+```go
+func (s *State) HealthHandler() http.HandlerFunc                    // Counter metrics as JSON
+func (s *State) StatusHandler() http.HandlerFunc                    // Simple UP/DOWN status
+func (s *State) TimeSeriesHandler(component string) http.HandlerFunc // Time-series analysis
 ```
 
 **Key Design Decisions**:
@@ -133,12 +141,15 @@ CREATE TABLE time_series_metrics (
 );
 ```
 
-### 2. Data Access (Web Request Handling)
+### 2. Data Access (HTTP Handlers and Time-Series Queries)
 
-#### HandleHealthRequest Method
+#### HTTP Handler Methods
 
 ```go
-func (s *State) HandleHealthRequest(w http.ResponseWriter, r *http.Request)
+func (s *State) HealthHandler() http.HandlerFunc                    // Returns JSON counter metrics
+func (s *State) StatusHandler() http.HandlerFunc                    // Returns simple UP/DOWN status
+func (s *State) TimeSeriesHandler(component string) http.HandlerFunc // Returns time-series data with statistical aggregation
+func (s *State) HandleHealthRequest(w http.ResponseWriter, r *http.Request) // Flexible URL pattern handling
 ```
 
 **URL Pattern Processing:**
@@ -302,12 +313,19 @@ var mu sync.Mutex // writer lock
 
 ### Time-Windowed Metric Collection Flow
 
-#### All Metric Types (Unified Collection)
+#### Counter Metrics Flow
 ```
-Application Event → IncrMetric()/AddMetric() → collectMutex.Lock → Append to SampledMetrics[timekey] → collectMutex.Unlock
-                                                        ↓
+Application Event → IncrMetric()/IncrComponentMetric() → collectMutex.Lock → Increment counter in current time window → collectMutex.Unlock
+                                                                ↓
+HTTP Request → HealthHandler() → Dump() → collectMutex.RLock → Read current counters → JSON output → collectMutex.RUnlock
+```
+
+#### Raw Value Metrics Flow  
+```
+Application Event → AddMetric()/AddComponentMetric() → collectMutex.Lock → Append to SampledMetrics[timekey] → collectMutex.Unlock
+                                                                ↓
 Background Timer → moveToFlushQueue() → collectMutex.Lock → Move completed windows → collectMutex.Unlock
-                                                        ↓
+                                                                ↓
                     flushToDB() → flushMutex.Lock → calculateStats() → PersistTimeSeriesMetrics() → flushMutex.Unlock
 ```
 
@@ -325,13 +343,19 @@ Timer (1 minute) → SystemCollector.collectSystemMetrics() → AddMetric(system
 
 ### Export Flow
 
+#### JSON Counter Export
 ```
-HTTP Request → Dump() → collectMutex.RLock → Current Time Window Statistics → JSON Marshal → collectMutex.RUnlock → HTTP Response
+HTTP Request → HealthHandler() → Dump() → collectMutex.RLock → Read current counters → JSON Marshal → collectMutex.RUnlock → HTTP Response
+```
+
+#### Time-Series Data Export
+```
+HTTP Request → TimeSeriesHandler(component) → Parse query params → Database query → Statistical aggregation → JSON Response
 ```
 
 **Thread Safety**: Export operations use read lock to prevent race conditions during concurrent collection.
-**Current Window Only**: JSON output shows statistics for current time window only - historical data available via time series queries.
-**Statistical Output**: Counter metrics show count, value metrics show min/max/avg/count statistics.
+**Counter vs Time-Series**: JSON output shows current counter values only - historical statistical data available via TimeSeriesHandler queries.
+**Real-time counters**: Counter metrics provide immediate operational status for health checks.
 
 ## Memory Management
 
@@ -359,10 +383,16 @@ Maps are created only when first needed:
     "Started": 1589113356,
     "Metrics": {
         "Global": {
+            "health-checks": 45,
             "requests": 42
         },
         "webserver": {
-            "requests": 100
+            "requests": 100,
+            "errors": 3
+        },
+        "database": {
+            "queries": 250,
+            "connections": 12
         }
     }
 }
@@ -391,13 +421,15 @@ Health monitoring must be extremely reliable - better to ignore invalid operatio
 
 ## Performance Characteristics
 
-### Time Complexity (Phase 2 Time-Windowed Architecture)
+### Time Complexity (Time-Windowed Architecture)
 
-- **IncrMetric()**: O(1) - append to time window slice (unchanged performance)
-- **AddMetric()**: O(1) - append to time window slice (unchanged performance)  
+- **IncrMetric()**: O(1) - increment counter in current time window (sub-microsecond performance)
+- **IncrComponentMetric()**: O(1) - increment component counter (sub-microsecond performance)
+- **AddMetric()**: O(1) - append raw value to time window slice (microsecond performance)  
+- **AddComponentMetric()**: O(1) - append component raw value to time window slice (microsecond performance)
 - **moveToFlushQueue()**: O(w × m) where w = completed windows, m = metrics per window
 - **calculateStats()**: O(n) where n = values in time window (typically <1000)
-- **Dump()**: O(m) where m = metrics in current time window for JSON marshalling
+- **Dump()**: O(m) where m = counter metrics for JSON marshalling (microseconds)
 
 ### Space Complexity (Time-Windowed Storage)
 
@@ -441,10 +473,10 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 
 ### Simplicity Over Features
 
-- **Two metric types only**: Counters and rolling averages cover most use cases
-- **No rate calculations**: Consumers handle temporal analysis
-- **No persistence**: In-memory only for simplicity
-- **No complex statistics**: Focus on basic monitoring needs
+- **Two metric types only**: Counter metrics and raw values cover most use cases
+- **Statistical aggregation**: Automatic min/max/avg/count calculation for time-series analysis
+- **Memory-first persistence**: SQLite backend with background processing for historical analysis
+- **Component organization**: Metrics grouped by application component for complex systems
 
 ### Operational Focus
 
@@ -458,8 +490,9 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 **"Expose behavior, hide implementation"** - The package API should expose what users need to accomplish (incrementing metrics, getting health data) while hiding how it's accomplished (storage mechanisms, internal data structures, locking strategies).
 
 #### Public API Principles
-- **Behavior-focused methods**: `IncrMetric()`, `UpdateRollingMetric()`, `Dump()`
-- **Simple configuration**: Clear initialization with sensible defaults
+- **Behavior-focused methods**: `IncrMetric()`, `AddMetric()`, `IncrComponentMetric()`, `AddComponentMetric()`, `Dump()`
+- **Simple configuration**: Environment variable configuration with sensible defaults
+- **HTTP integration**: Standard handlers for health endpoints and time-series queries
 - **Stable interfaces**: Public API changes require major version bumps
 - **Self-documenting**: Method names clearly indicate their purpose
 

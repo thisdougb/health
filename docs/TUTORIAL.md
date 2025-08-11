@@ -159,10 +159,10 @@ func ProcessOrder(orderID string, items []MenuItem) error {
 ```
 
 **What this code does:**
-- `IncrementCounter()` adds 1 to a metric (like counting events)
-- `UpdateRolling()` records a value for averaging (like response times)
+- `IncrComponentMetric()` increments counter metrics stored in memory and included in JSON output
+- `AddComponentMetric()` records raw values queued for time-series storage with statistical aggregation
 - `time.Now()` and `time.Since()` measure how long operations take
-- Component name "kitchen" groups all kitchen-related metrics together
+- Component name "kitchen" groups all kitchen-related metrics together for easy analysis
 
 ### Customer Service Component - Review Management
 **File: `service/service.go`**
@@ -174,8 +174,8 @@ The customer service component implements review collection with admin managemen
 // This handles customer reviews and admin responses with metrics tracking
 
 func CreateReview(customerID, content string) error {
-    // Count every review created - tracks customer engagement
-    globalMetrics.IncrementCounter("service", "reviews-created")
+    // Count every review created - tracks customer engagement (appears in JSON)
+    globalState.IncrComponentMetric("service", "reviews-created")
     
     // Start timing the database operation
     startTime := time.Now()
@@ -184,23 +184,23 @@ func CreateReview(customerID, content string) error {
     err := storeReview(customerID, content)
     if err != nil {
         // Track database problems separately from business logic errors
-        globalMetrics.IncrementCounter("service", "database-errors")
+        globalState.IncrComponentMetric("service", "database-errors")
         return err
     }
     
-    // Track performance - how fast can we create reviews?
+    // Record creation time for time-series analysis with statistical aggregation
     creationTime := time.Since(startTime).Milliseconds()
-    globalMetrics.UpdateRolling("service", "review-creation-time-ms", float64(creationTime))
+    globalState.AddComponentMetric("service", "review-creation-time-ms", float64(creationTime))
     
     return nil
 }
 
 func CreateAdminResponse(reviewID, response string) error {
     // Count admin responses - tracks staff engagement with customers
-    globalMetrics.IncrementCounter("service", "admin-responses-sent")
+    globalState.IncrComponentMetric("service", "admin-responses-sent")
     
     // Track AI usage if you're using AI to help write responses
-    globalMetrics.IncrementCounter("service", "ai-integrations") // If using AI assistance
+    globalState.IncrComponentMetric("service", "ai-integrations") // If using AI assistance
     
     // Time the admin response creation
     startTime := time.Now()
@@ -211,19 +211,19 @@ func CreateAdminResponse(reviewID, response string) error {
         return err
     }
     
-    // Track how fast admins can respond to reviews
+    // Record response time for persistent time-series storage
     responseTime := time.Since(startTime).Milliseconds()
-    globalMetrics.UpdateRolling("service", "admin-response-time-ms", float64(responseTime))
+    globalState.AddComponentMetric("service", "admin-response-time-ms", float64(responseTime))
     
     return nil
 }
 ```
 
 **What this code does:**
-- Each function tracks both success events and performance timing
+- Counter metrics (IncrComponentMetric) are stored in memory and appear in JSON output
+- Raw timing values (AddComponentMetric) are queued for time-series storage with min/max/avg/count aggregation
 - Database errors are tracked separately from business logic errors
-- "service" component groups all customer service metrics together
-- AI usage tracking helps measure automation vs human work
+- "service" component groups all customer service metrics for time-series queries
 
 ## Metrics Naming Strategy
 
@@ -367,9 +367,9 @@ import (
 )
 
 func TestOrderProcessing(t *testing.T) {
-    // Create separate metrics instance for testing - keeps tests isolated
-    testMetrics := health.NewState()
-    testMetrics.SetConfig("test-diner", 5)
+    // Create separate State instance for testing - keeps tests isolated
+    testState := health.NewState()
+    testState.SetConfig("test-diner")
     
     // Process a test order with 2 items
     err := ProcessOrder("test-123", []MenuItem{
@@ -382,8 +382,8 @@ func TestOrderProcessing(t *testing.T) {
         t.Fatalf("ProcessOrder failed: %v", err)
     }
     
-    // Get metrics as JSON string
-    metricsJSON := testMetrics.Dump()
+    // Get counter metrics as JSON string
+    metricsJSON := testState.Dump()
     
     // Basic verification that metrics were recorded
     if !strings.Contains(metricsJSON, `"kitchen"`) {
@@ -462,4 +462,74 @@ dougs-diner/
 └── *_test.go              # Tests for each component
 ```
 
-This implementation demonstrates how metrics become a natural part of business process tracking, providing operational visibility while maintaining clean separation of concerns in the application architecture.
+## Time-Series Analysis
+
+The time-windowed system enables sophisticated analysis beyond simple counters:
+
+### Setting up Time-Series Endpoints
+
+```go
+// Add time-series handlers for different components
+http.HandleFunc("/health/kitchen/timeseries", globalState.TimeSeriesHandler("kitchen"))
+http.HandleFunc("/health/service/timeseries", globalState.TimeSeriesHandler("service"))
+```
+
+### Query Examples
+
+```bash
+# Kitchen performance over last 2 hours with 5-minute aggregation windows
+curl "https://dougsdiner.com/health/kitchen/timeseries?window=5m&lookback=2h"
+
+# Service metrics for specific incident time
+curl "https://dougsdiner.com/health/service/timeseries?window=1m&lookback=1h&date=2025-01-15&time=14:30:00"
+```
+
+### Response Format
+
+```json
+{
+  "component": "kitchen",
+  "start_time": "2025-01-15T12:00:00Z",
+  "end_time": "2025-01-15T14:00:00Z",
+  "metrics": {
+    "preparation-time-ms": {
+      "12:00:00": 245.2,
+      "12:05:00": 287.1,
+      "12:10:00": 234.8
+    },
+    "items-per-order": {
+      "12:00:00": 2.3,
+      "12:05:00": 2.8,
+      "12:10:00": 2.1
+    }
+  }
+}
+```
+
+### Graceful Shutdown
+
+Always close the State properly to flush pending metrics:
+
+```go
+func main() {
+    // Initialize your application
+    globalState = health.NewState()
+    globalState.SetConfig("dougs-diner")
+    
+    // Set up graceful shutdown
+    c := make(chan os.Signal, 1)
+    signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+    
+    go func() {
+        <-c
+        log.Println("Shutting down gracefully...")
+        globalState.Close() // Flushes pending metrics and creates backup
+        os.Exit(0)
+    }()
+    
+    // Start your HTTP server
+    log.Fatal(http.ListenAndServe(":8080", nil))
+}
+```
+
+This implementation demonstrates how time-windowed metrics provide both immediate operational visibility through counter metrics and sophisticated time-series analysis capabilities for performance optimization and incident analysis.
