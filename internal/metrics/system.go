@@ -113,13 +113,13 @@ func (sc *SystemCollector) collectSystemMetrics() {
 	uptime := time.Since(sc.startTime).Seconds()
 	sc.state.AddMetric("system", "uptime_seconds", uptime)
 
-	// Log collection for debugging (can be disabled in production)
-	log.Printf("System metrics collected at %v: CPU=%.1f%%, Mem=%dMB, Goroutines=%d, Uptime=%.0fs",
-		timestamp.Format("15:04:05"),
-		cpuPercent,
-		memStats.Alloc/(1024*1024),
-		goroutines,
-		uptime)
+	// Log collection for debugging (disabled)
+	// log.Printf("System metrics collected at %v: CPU=%.1f%%, Mem=%dMB, Goroutines=%d, Uptime=%.0fs",
+	//	timestamp.Format("15:04:05"),
+	//	cpuPercent,
+	//	memStats.Alloc/(1024*1024),
+	//	goroutines,
+	//	uptime)
 }
 
 // getCPUPercent provides a simplified CPU usage calculation
