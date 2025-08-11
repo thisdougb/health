@@ -4,26 +4,26 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// SQLiteBackend implements Backend interface using SQLite database
+// SQLiteBackend implements Backend interface using SQLite database.
+// This is a CRUD-only backend that handles storage operations.
+// All processing logic is handled by the universal queue before calling this backend.
 type SQLiteBackend struct {
-	db    *sql.DB
-	queue *SQLiteWriteQueue
+	db *sql.DB
 }
 
 // SQLiteConfig holds configuration for SQLite backend
 type SQLiteConfig struct {
-	DBPath        string
-	FlushInterval time.Duration
-	BatchSize     int
+	DBPath string
 }
 
-// NewSQLiteBackend creates a new SQLite storage backend
+// NewSQLiteBackend creates a new SQLite storage backend.
+// Returns a clean CRUD-only backend ready for storage operations.
+// The universal queue handles all processing before calling this backend.
 func NewSQLiteBackend(config SQLiteConfig) (*SQLiteBackend, error) {
 	// Open database connection
 	db, err := sql.Open("sqlite3", config.DBPath)
@@ -47,42 +47,32 @@ func NewSQLiteBackend(config SQLiteConfig) (*SQLiteBackend, error) {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	// Create write queue
-	queue := NewSQLiteWriteQueue(db, config.FlushInterval, config.BatchSize)
-
-	backend := &SQLiteBackend{
-		db:    db,
-		queue: queue,
-	}
-
-	// Start background queue processing
-	queue.Start()
-
-	return backend, nil
+	return &SQLiteBackend{
+		db: db,
+	}, nil
 }
 
 // NewSQLiteBackendFromEnv creates SQLite backend using environment variables
 func NewSQLiteBackendFromEnv() (*SQLiteBackend, error) {
 	config := SQLiteConfig{
-		DBPath:        getEnv("HEALTH_DB_PATH", "./health.db"),
-		FlushInterval: parseDuration(getEnv("HEALTH_FLUSH_INTERVAL", "60s")),
-		BatchSize:     parseInt(getEnv("HEALTH_BATCH_SIZE", "100")),
+		DBPath: getEnv("HEALTH_DB_PATH", "./health.db"),
 	}
 
 	return NewSQLiteBackend(config)
 }
 
-// WriteMetrics queues metrics for async writing to SQLite
+// WriteMetrics is not used by SQLite backend - raw metrics are processed by queue.
+// This method exists to satisfy the Backend interface but should not be called.
+// The universal queue handles raw metrics and calls WriteMetricsData with processed data.
 func (s *SQLiteBackend) WriteMetrics(metrics []MetricEntry) error {
-	if len(metrics) == 0 {
-		return nil
-	}
-
-	return s.queue.Enqueue(metrics)
+	// SQLite backend only handles processed data via WriteMetricsData
+	// Raw metrics should be handled by the universal queue
+	return fmt.Errorf("SQLite backend only accepts processed data via WriteMetricsData")
 }
 
-// WriteMetricsData writes aggregated metrics data directly to SQLite
-// This bypasses the queue since these are already aggregated and ready for storage
+// WriteMetricsData writes processed metrics data to SQLite database.
+// This is a simple CRUD operation - data has already been aggregated by the queue.
+// Thread-safe storage of processed metrics for later retrieval.
 func (s *SQLiteBackend) WriteMetricsData(metrics []MetricsDataEntry) error {
 	if len(metrics) == 0 {
 		return nil
@@ -125,7 +115,9 @@ func (s *SQLiteBackend) WriteMetricsData(metrics []MetricsDataEntry) error {
 	return tx.Commit()
 }
 
-// ReadMetrics retrieves aggregated time series metrics for a component within the time range
+// ReadMetrics retrieves stored metrics for a component within the time range.
+// This is a simple CRUD read operation that queries the processed storage.
+// Converts stored MetricsDataEntry back to MetricEntry format for compatibility.
 func (s *SQLiteBackend) ReadMetrics(component string, start, end time.Time) ([]MetricEntry, error) {
 	// Convert time range to time window keys for efficient querying
 	startKey := timeToWindowKey(start)
@@ -173,24 +165,14 @@ func (s *SQLiteBackend) ReadMetrics(component string, start, end time.Time) ([]M
 			continue // Skip invalid time keys
 		}
 
-		// Create MetricEntry with aggregated data - use avg as the primary value
-		// For counters (where min=max=avg=1.0), use count as value
-		var value interface{}
-		var metricType string
-		if minValue == 1.0 && maxValue == 1.0 && avgValue == 1.0 {
-			// Counter metric - use count
-			value = count
-			metricType = "counter"
-		} else {
-			// Value metric - use average, but include stats in metadata
-			value = map[string]interface{}{
-				"avg":   avgValue,
-				"min":   minValue, 
-				"max":   maxValue,
-				"count": count,
-			}
-			metricType = "value"
+		// All metrics are now value metrics with statistical aggregation
+		value := map[string]interface{}{
+			"avg":   avgValue,
+			"min":   minValue,
+			"max":   maxValue,
+			"count": count,
 		}
+		metricType := "value"
 
 		entry := MetricEntry{
 			Timestamp: timestamp,
@@ -209,9 +191,10 @@ func (s *SQLiteBackend) ReadMetrics(component string, start, end time.Time) ([]M
 	return metrics, nil
 }
 
-// ListComponents returns all unique component names
+// ListComponents returns all unique component names from stored data.
+// This is a simple CRUD read operation that queries processed storage for component names.
 func (s *SQLiteBackend) ListComponents() ([]string, error) {
-	query := `SELECT DISTINCT component FROM metrics ORDER BY component`
+	query := `SELECT DISTINCT component FROM time_series_metrics ORDER BY component`
 
 	rows, err := s.db.Query(query)
 	if err != nil {
@@ -235,13 +218,8 @@ func (s *SQLiteBackend) ListComponents() ([]string, error) {
 	return components, nil
 }
 
-// Close gracefully shuts down the SQLite backend
+// Close performs cleanup for SQLite backend
 func (s *SQLiteBackend) Close() error {
-	// Stop queue processing and flush remaining items
-	if s.queue != nil {
-		s.queue.Stop()
-	}
-
 	// Close database connection
 	if s.db != nil {
 		return s.db.Close()
@@ -269,19 +247,5 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-func parseDuration(s string) time.Duration {
-	duration, err := time.ParseDuration(s)
-	if err != nil {
-		return 60 * time.Second // Default to 60 seconds
-	}
-	return duration
-}
 
-func parseInt(s string) int {
-	value, err := strconv.Atoi(s)
-	if err != nil {
-		return 100 // Default batch size
-	}
-	return value
-}
 

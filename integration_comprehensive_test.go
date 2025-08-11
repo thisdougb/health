@@ -168,13 +168,12 @@ func TestFullWorkflowSQLiteBackend(t *testing.T) {
 		state.AddMetric("response_time", float64(100+i*10)) // Varying response times
 		state.AddComponentMetric("database", "query_time", float64(20+i*2))
 
-		// Small delay to simulate real application timing
-		time.Sleep(10 * time.Millisecond)
+		// No sleep needed - test async processing directly
 	}
 
-	// Step 5: Allow time for async persistence to write to database
-	// The package uses background processing to avoid blocking your application
-	time.Sleep(2 * time.Second)
+	// Step 5: Force flush to ensure data is written to database immediately
+	// Instead of waiting for async processing, we test the flush mechanism directly
+	state.Close() // This triggers flush and ensures all data is written
 
 	// Step 6: Verify SQLite database was created
 	if _, err := os.Stat(tmpFile); os.IsNotExist(err) {
@@ -432,17 +431,20 @@ func TestSystemMetricsCollection(t *testing.T) {
 	state.SetConfig("test-system-metrics")
 	
 	// System metrics are collected automatically in the background
-	// We need to wait a bit for the first collection cycle
-	time.Sleep(200 * time.Millisecond)
-	
 	// Add some application metrics to generate activity
 	for i := 0; i < 50; i++ {
 		state.IncrMetric("test_metric")
 		state.AddMetric("test_value", float64(i))
 	}
 	
-	// Wait for metrics to be persisted
-	time.Sleep(500 * time.Millisecond)
+	// Force flush to ensure all metrics are persisted immediately
+	manager := state.GetStorageManager()
+	if manager != nil {
+		err := manager.ForceFlush()
+		if err != nil {
+			t.Fatalf("Failed to force flush: %v", err)
+		}
+	}
 	
 	// System metrics don't appear in JSON (they go to storage backend)
 	// But we can verify they were collected using the admin functions

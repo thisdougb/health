@@ -5,8 +5,6 @@ import (
 	"sort"
 	"sync"
 	"time"
-	
-	"github.com/thisdougb/health/internal/config"
 )
 
 // MemoryBackend implements Backend interface using in-memory storage.
@@ -159,20 +157,3 @@ func (m *MemoryBackend) Clear() {
 	m.storage = m.storage[:0]
 }
 
-// timeToWindowKey converts a timestamp to a time window key format
-func timeToWindowKey(t time.Time) string {
-	// Use HEALTH_SAMPLE_RATE config value for window duration (default 60 seconds)
-	windowSeconds := config.IntValue("HEALTH_SAMPLE_RATE")
-	windowDuration := time.Duration(windowSeconds) * time.Second
-	
-	// Truncate to the time window boundary
-	truncated := t.Truncate(windowDuration)
-	
-	// Format as YYYYMMDDHHMMSS with trailing zeros
-	return truncated.Format("20060102150400")
-}
-
-// windowKeyToTime converts a time window key back to a timestamp
-func windowKeyToTime(key string) (time.Time, error) {
-	return time.Parse("20060102150400", key)
-}

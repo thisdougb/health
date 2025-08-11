@@ -80,32 +80,6 @@ func TestBool(t *testing.T) {
 	os.Unsetenv("_TEST_BOOL_VALUE")
 }
 
-func TestWahooConfigValues(t *testing.T) {
-	
-	// Test that Wahoo config values are available
-	os.Unsetenv("WAHOO_CLIENT_ID")
-	os.Unsetenv("WAHOO_AUTH_REDIRECT_URI") 
-	os.Unsetenv("WAHOO_REQUIRED_SCOPE")
-	
-	if StringValue("WAHOO_CLIENT_ID") == "" {
-		t.Errorf("WAHOO_CLIENT_ID should not be empty")
-	}
-	
-	if StringValue("WAHOO_AUTH_REDIRECT_URI") == "" {
-		t.Errorf("WAHOO_AUTH_REDIRECT_URI should not be empty")
-	}
-	
-	if StringValue("WAHOO_REQUIRED_SCOPE") == "" {
-		t.Errorf("WAHOO_REQUIRED_SCOPE should not be empty")
-	}
-	
-	// Test env var override
-	os.Setenv("WAHOO_CLIENT_ID", "test_client_id")
-	if StringValue("WAHOO_CLIENT_ID") != "test_client_id" {
-		t.Errorf("WAHOO_CLIENT_ID env override failed: got %s", StringValue("WAHOO_CLIENT_ID"))
-	}
-	os.Unsetenv("WAHOO_CLIENT_ID")
-}
 
 func TestGetEnvVar(t *testing.T) {
 

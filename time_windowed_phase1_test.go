@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/thisdougb/health/internal/config"
 )
@@ -119,8 +118,7 @@ func TestTimeWindowKeyGeneration(t *testing.T) {
 	
 	state.IncrMetric("test_metric")
 	
-	// Wait a moment and add another metric - should be in same window
-	time.Sleep(100 * time.Millisecond)
+	// Add another metric immediately - both should be in same window
 	state.IncrMetric("test_metric")
 	
 	jsonOutput := state.Dump()

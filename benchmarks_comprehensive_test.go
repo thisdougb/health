@@ -244,8 +244,11 @@ func BenchmarkDataExtraction(b *testing.B) {
 		}
 	}
 	
-	// Wait for data to be persisted
-	time.Sleep(200 * time.Millisecond)
+	// Force flush to ensure data is persisted
+	manager := state.GetStorageManager()
+	if manager != nil {
+		manager.ForceFlush()
+	}
 	
 	// Define time range for extraction
 	start := time.Now().Add(-10 * time.Minute)
@@ -319,8 +322,11 @@ func BenchmarkBackupOperations(b *testing.B) {
 		state.AddComponentMetric("database", "query_time", float64(20+i%50))
 	}
 	
-	// Wait for data to be persisted
-	time.Sleep(1 * time.Second)
+	// Force flush to ensure data is persisted before benchmarking
+	manager := state.GetStorageManager()
+	if manager != nil {
+		manager.ForceFlush()
+	}
 	
 	b.ResetTimer()
 	

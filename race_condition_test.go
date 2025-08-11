@@ -225,8 +225,11 @@ func TestRaceConditionWithPersistence(t *testing.T) {
 	
 	wg.Wait()
 	
-	// Wait for persistence to complete
-	time.Sleep(500 * time.Millisecond)
+	// Force flush to ensure persistence is complete
+	manager := state.GetStorageManager()
+	if manager != nil {
+		manager.ForceFlush()
+	}
 	
 	// Verify final state
 	jsonOutput := state.Dump()
@@ -291,8 +294,11 @@ func TestRaceConditionSystemMetrics(t *testing.T) {
 	
 	wg.Wait()
 	
-	// Wait for system metrics collection and persistence
-	time.Sleep(1 * time.Second)
+	// Force flush to ensure all operations are complete
+	manager := state.GetStorageManager()
+	if manager != nil {
+		manager.ForceFlush()
+	}
 	
 	// Verify everything still works
 	jsonOutput := state.Dump()
@@ -329,15 +335,14 @@ func TestRaceConditionCloseOperations(t *testing.T) {
 				state.IncrMetric("close_race_test")
 				state.AddMetric("close_value", float64(j))
 				
-				// Small delay to increase chance of racing with Close()
-				time.Sleep(1 * time.Millisecond)
+				// No sleep needed - test race condition directly
 			}
 		}(i)
 	}
 	
 	// Start another goroutine that will call Close() while operations are running
 	go func() {
-		time.Sleep(50 * time.Millisecond) // Let some operations start
+		// Close immediately to test race condition
 		
 		// This should be safe even with concurrent operations
 		if err := state.Close(); err != nil {
@@ -401,7 +406,7 @@ func TestRaceConditionBackupOperations(t *testing.T) {
 				state.IncrMetric("backup_race_counter")
 				state.AddMetric("backup_race_value", float64(j))
 				
-				time.Sleep(5 * time.Millisecond)
+				// No sleep needed - test concurrent operations directly
 			}
 		}(i)
 	}
@@ -411,7 +416,7 @@ func TestRaceConditionBackupOperations(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		
-		time.Sleep(100 * time.Millisecond) // Let some data accumulate
+		// Create backup concurrently with operations
 		
 		// Create backup while other operations are running
 		manager := state.GetStorageManager()

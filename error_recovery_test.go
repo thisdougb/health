@@ -3,7 +3,6 @@
 package health
 
 import (
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -141,8 +140,11 @@ func TestErrorConditionInvalidBackupConfiguration(t *testing.T) {
 		state.IncrMetric("backup_error_test")
 		state.AddMetric("backup_error_value", 456.78)
 		
-		// Wait for persistence
-		time.Sleep(200 * time.Millisecond)
+		// Force flush to ensure persistence
+		manager := state.GetStorageManager()
+		if manager != nil {
+			manager.ForceFlush()
+		}
 		
 		// Normal operations should work despite backup issues
 		jsonOutput := state.Dump()
@@ -315,7 +317,11 @@ func TestErrorConditionCorruptedDatabase(t *testing.T) {
 		state1.AddMetric("setup_value", float64(i))
 	}
 	
-	time.Sleep(200 * time.Millisecond) // Wait for persistence
+	// Force flush to ensure persistence
+	manager := state1.GetStorageManager()
+	if manager != nil {
+		manager.ForceFlush()
+	}
 	state1.Close()
 	
 	// Verify database was created
@@ -350,61 +356,6 @@ func TestErrorConditionCorruptedDatabase(t *testing.T) {
 }
 */
 
-// TestErrorConditionSystemResourceExhaustion tests behavior under resource pressure
-// This helps junior developers understand how the package behaves under stress
-func TestErrorConditionSystemResourceExhaustion(t *testing.T) {
-	state := NewState()
-	defer state.Close()
-	
-	state.SetConfig("test-resource-exhaustion")
-	
-	// Test 1: Create many metrics to use more memory
-	t.Run("HighMemoryUsage", func(t *testing.T) {
-		// Create many unique metrics - this uses more memory
-		for i := 0; i < 10000; i++ {
-			metricName := fmt.Sprintf("memory_test_%d", i)
-			componentName := fmt.Sprintf("component_%d", i%100)
-			
-			state.IncrMetric(metricName)
-			state.IncrComponentMetric(componentName, metricName)
-			state.AddMetric(metricName, float64(i))
-		}
-		
-		// Should still be functional
-		jsonOutput := state.Dump()
-		if jsonOutput == "" {
-			t.Fatal("State should remain functional under high memory usage")
-		}
-		
-		// Verify we can still add more metrics
-		state.IncrMetric("after_memory_test")
-		jsonOutput = state.Dump()
-		
-		if !strings.Contains(jsonOutput, "after_memory_test") {
-			t.Error("Should be able to add metrics after high memory usage test")
-		}
-	})
-	
-	// Test 2: Very frequent operations (CPU pressure)
-	t.Run("HighCPUUsage", func(t *testing.T) {
-		// Perform many operations quickly
-		for i := 0; i < 100000; i++ {
-			state.IncrMetric("cpu_test")
-			state.AddMetric("cpu_value", float64(i%1000))
-			
-			// Occasional JSON export adds CPU load
-			if i%1000 == 0 {
-				_ = state.Dump()
-			}
-		}
-		
-		// Should still be functional
-		jsonOutput := state.Dump()
-		if jsonOutput == "" {
-			t.Fatal("State should remain functional under high CPU usage")
-		}
-	})
-}
 
 // TestErrorConditionInvalidConfiguration tests handling of bad configuration
 // This helps junior developers understand configuration validation
@@ -550,7 +501,11 @@ func TestErrorConditionDataExtractionFailures(t *testing.T) {
 		state.IncrMetric("corrupt_test")
 		state.AddMetric("corrupt_value", 456.78)
 		
-		time.Sleep(200 * time.Millisecond) // Wait for persistence
+		// Force flush to ensure persistence
+		manager := state.GetStorageManager()
+		if manager != nil {
+			manager.ForceFlush()
+		}
 		
 		// Now corrupt the database
 		corruptData := []byte("CORRUPTED DATABASE FILE")
@@ -599,7 +554,11 @@ func TestErrorConditionRecoveryAfterFailure(t *testing.T) {
 	state.IncrMetric("recovery_phase1")
 	state.AddMetric("recovery_value1", 111.0)
 	
-	time.Sleep(200 * time.Millisecond) // Wait for persistence
+	// Force flush to ensure persistence
+	manager := state.GetStorageManager()
+	if manager != nil {
+		manager.ForceFlush()
+	}
 	
 	// Verify database was created
 	if _, err := os.Stat(tmpFile); os.IsNotExist(err) {

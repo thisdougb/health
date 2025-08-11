@@ -50,35 +50,42 @@ func NewManagerFromConfig() (*Manager, error) {
 		}, nil
 	}
 
+	// Parse universal queue configuration
+	flushInterval := 60 * time.Second
+	if flushStr := config.StringValue("HEALTH_FLUSH_INTERVAL"); flushStr != "" {
+		if interval, parseErr := time.ParseDuration(flushStr); parseErr == nil {
+			flushInterval = interval
+		}
+	}
+	batchSize := config.IntValue("HEALTH_BATCH_SIZE")
+	if batchSize <= 0 {
+		batchSize = 100 // Default batch size
+	}
+
 	// Create appropriate backend based on configuration
 	var backend Backend
 	var err error
 	if dbPath := config.StringValue("HEALTH_DB_PATH"); dbPath != "" {
-		// Parse flush interval
-		flushInterval := 60 * time.Second
-		if flushStr := config.StringValue("HEALTH_FLUSH_INTERVAL"); flushStr != "" {
-			if interval, parseErr := time.ParseDuration(flushStr); parseErr == nil {
-				flushInterval = interval
-			}
-		}
-
-		// Use SQLite backend
+		// Use SQLite backend (CRUD-only)
 		sqliteConfig := SQLiteConfig{
-			DBPath:        dbPath,
-			FlushInterval: flushInterval,
-			BatchSize:     config.IntValue("HEALTH_BATCH_SIZE"),
+			DBPath: dbPath,
 		}
 		backend, err = NewSQLiteBackend(sqliteConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SQLite backend: %w", err)
 		}
 	} else {
-		// Use memory backend (for testing/development)
+		// Use memory backend (CRUD-only, for testing/development)
 		backend = NewMemoryBackend()
 	}
 
+	// Create universal queue for consistent processing across all backends
+	queue := NewMetricsQueue(backend, flushInterval, batchSize)
+	queue.Start()
+
 	manager := &Manager{
 		backend: backend,
+		queue:   queue,
 		enabled: true,
 		backupConfig: BackupConfig{
 			Enabled:       config.BoolValue("HEALTH_BACKUP_ENABLED"),

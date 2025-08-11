@@ -174,8 +174,7 @@ func TestSystemMetricsMemoryUsage(t *testing.T) {
 	state.SetConfig("memory-test")
 	defer state.Close()
 	
-	// Let system metrics run for a bit
-	time.Sleep(100 * time.Millisecond)
+	// System metrics run automatically - no wait needed
 	
 	// Get initial memory stats
 	var initialMem, finalMem runtime.MemStats
@@ -191,8 +190,11 @@ func TestSystemMetricsMemoryUsage(t *testing.T) {
 		}
 	}
 	
-	// Wait for any background collection
-	time.Sleep(200 * time.Millisecond)
+	// Force flush any background operations
+	manager := state.GetStorageManager()
+	if manager != nil {
+		manager.ForceFlush()
+	}
 	
 	// Get final memory stats
 	runtime.GC()

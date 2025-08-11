@@ -14,9 +14,7 @@ func TestSQLiteBackend_NewBackend(t *testing.T) {
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	config := SQLiteConfig{
-		DBPath:        dbPath,
-		FlushInterval: time.Second,
-		BatchSize:     10,
+		DBPath: dbPath,
 	}
 
 	backend, err := NewSQLiteBackend(config)
@@ -89,15 +87,24 @@ func TestSQLiteBackend_WriteAndReadMetrics(t *testing.T) {
 		t.Fatalf("Expected 2 metrics, got %d", len(readMetrics))
 	}
 
-	// Check first metric (counter) - should return count as value
+	// All metrics now return statistical aggregation (no more counter/value distinction)
+	// Check first metric - should return aggregated data
 	if readMetrics[0].Component != "test" ||
 		readMetrics[0].Name != "counter1" ||
-		readMetrics[0].Value != 42 ||
-		readMetrics[0].Type != "counter" {
-		t.Fatalf("First metric doesn't match: %+v", readMetrics[0])
+		readMetrics[0].Type != "value" {
+		t.Fatalf("First metric doesn't match expected component/name/type: %+v", readMetrics[0])
+	}
+	
+	// Verify first metric has aggregated data
+	firstStats, ok := readMetrics[0].Value.(map[string]interface{})
+	if !ok {
+		t.Fatalf("First metric should have aggregated data map, got %T", readMetrics[0].Value)
+	}
+	if firstStats["count"] != 42 || firstStats["avg"] != 1.0 {
+		t.Fatalf("First metric stats don't match expected values: %+v", firstStats)
 	}
 
-	// Check second metric (value) - should return stats map
+	// Check second metric - should also return aggregated data
 	if readMetrics[1].Component != "test" || readMetrics[1].Name != "value_metric" {
 		t.Fatalf("Second metric component/name doesn't match: %+v", readMetrics[1])
 	}
@@ -161,15 +168,25 @@ func TestSQLiteBackend_ReadMetricsAllComponents(t *testing.T) {
 		t.Fatalf("Expected 2 metrics, got %d", len(readMetrics))
 	}
 
-	// Verify both components are returned
+	// Verify both components are returned with aggregated data
 	foundComp1 := false
 	foundComp2 := false
 	for _, metric := range readMetrics {
-		if metric.Component == "comp1" && metric.Name == "metric1" && metric.Value == 5 {
-			foundComp1 = true
+		if metric.Component == "comp1" && metric.Name == "metric1" {
+			// Check that metric has aggregated data
+			if stats, ok := metric.Value.(map[string]interface{}); ok {
+				if stats["count"] == 5 && stats["avg"] == 1.0 {
+					foundComp1 = true
+				}
+			}
 		}
-		if metric.Component == "comp2" && metric.Name == "metric2" && metric.Value == 10 {
-			foundComp2 = true  
+		if metric.Component == "comp2" && metric.Name == "metric2" {
+			// Check that metric has aggregated data
+			if stats, ok := metric.Value.(map[string]interface{}); ok {
+				if stats["count"] == 10 && stats["avg"] == 1.0 {
+					foundComp2 = true
+				}
+			}
 		}
 	}
 	
@@ -182,26 +199,30 @@ func TestSQLiteBackend_ListComponents(t *testing.T) {
 	backend := setupTestSQLiteBackend(t)
 	defer backend.Close()
 
+	// Create manager for proper queue processing
+	manager := NewManager(backend, true)
+	defer manager.Close()
+
 	// Test metrics from different components
 	now := time.Now().Truncate(time.Second)
 	metrics := []MetricEntry{
-		{Timestamp: now, Component: "alpha", Name: "metric1", Value: 1, Type: "counter"},
-		{Timestamp: now, Component: "beta", Name: "metric2", Value: 2, Type: "counter"},
-		{Timestamp: now, Component: "alpha", Name: "metric3", Value: 3, Type: "counter"},
+		{Timestamp: now, Component: "alpha", Name: "metric1", Value: 1, Type: "value"},
+		{Timestamp: now, Component: "beta", Name: "metric2", Value: 2, Type: "value"},
+		{Timestamp: now, Component: "alpha", Name: "metric3", Value: 3, Type: "value"},
 	}
 
-	err := backend.WriteMetrics(metrics)
+	err := manager.PersistMetrics(metrics)
 	if err != nil {
-		t.Fatalf("Failed to write metrics: %v", err)
+		t.Fatalf("Failed to persist metrics: %v", err)
 	}
 
-	err = backend.queue.ForceFlush()
+	err = manager.ForceFlush()
 	if err != nil {
 		t.Fatalf("Failed to flush queue: %v", err)
 	}
 
-	// List components
-	components, err := backend.ListComponents()
+	// List components through manager
+	components, err := manager.ListComponents()
 	if err != nil {
 		t.Fatalf("Failed to list components: %v", err)
 	}
@@ -219,49 +240,38 @@ func TestSQLiteBackend_ListComponents(t *testing.T) {
 	}
 }
 
-func TestSQLiteWriteQueue_BatchProcessing(t *testing.T) {
+func TestSQLiteUniversalQueue_BatchProcessing(t *testing.T) {
 	backend := setupTestSQLiteBackend(t)
 	defer backend.Close()
 
-	// Set small batch size for testing
-	backend.queue.batchSize = 2
+	// Create manager with small batch size for testing
+	manager := NewManager(backend, true)
+	defer manager.Close()
 
-	// Add metrics one by one
+	// Test that manager properly processes metrics through universal queue
 	now := time.Now().Truncate(time.Second)
-	metrics1 := []MetricEntry{
-		{Timestamp: now, Component: "test", Name: "metric1", Value: 1, Type: "counter"},
-	}
-	metrics2 := []MetricEntry{
-		{Timestamp: now, Component: "test", Name: "metric2", Value: 2, Type: "counter"},
+	testMetrics := []MetricEntry{
+		{Timestamp: now, Component: "test", Name: "metric1", Value: 1, Type: "value"},
+		{Timestamp: now.Add(time.Second), Component: "test", Name: "metric2", Value: 2, Type: "value"},
 	}
 
-	// Queue first metric (should not flush yet)
-	err := backend.WriteMetrics(metrics1)
+	// Queue metrics through manager (uses universal queue)
+	err := manager.PersistMetrics(testMetrics)
 	if err != nil {
-		t.Fatalf("Failed to write first metric: %v", err)
+		t.Fatalf("Failed to persist metrics: %v", err)
 	}
 
-	// Check queue size
-	if backend.queue.QueueSize() != 1 {
-		t.Fatalf("Expected queue size 1, got %d", backend.queue.QueueSize())
-	}
-
-	// Queue second metric (should trigger flush)
-	err = backend.WriteMetrics(metrics2)
+	// Force flush to ensure processing
+	err = manager.ForceFlush()
 	if err != nil {
-		t.Fatalf("Failed to write second metric: %v", err)
-	}
-
-	// Queue should be empty after batch flush
-	if backend.queue.QueueSize() != 0 {
-		t.Fatalf("Expected queue size 0 after batch flush, got %d", backend.queue.QueueSize())
+		t.Fatalf("Failed to force flush: %v", err)
 	}
 
 	// Verify metrics were written to database
 	start := now.Add(-time.Hour)
 	end := now.Add(time.Hour)
 
-	readMetrics, err := backend.ReadMetrics("test", start, end)
+	readMetrics, err := manager.ReadMetrics("test", start, end)
 	if err != nil {
 		t.Fatalf("Failed to read metrics: %v", err)
 	}
@@ -269,14 +279,40 @@ func TestSQLiteWriteQueue_BatchProcessing(t *testing.T) {
 	if len(readMetrics) != 2 {
 		t.Fatalf("Expected 2 metrics in database, got %d", len(readMetrics))
 	}
+
+	// Verify all metrics are now value metrics with statistical aggregation
+	for _, metric := range readMetrics {
+		if metric.Type != "value" {
+			t.Errorf("Expected metric %s to be type 'value', got '%s'", metric.Name, metric.Type)
+		}
+		if _, isMap := metric.Value.(map[string]interface{}); !isMap {
+			t.Errorf("Expected metric %s to have aggregated value map, got %T", metric.Name, metric.Value)
+		}
+	}
+}
+
+func TestSQLiteBackend_WriteMetrics_ShouldFail(t *testing.T) {
+	backend := setupTestSQLiteBackend(t)
+	defer backend.Close()
+
+	// SQLite backend should reject raw metrics and require processed data
+	now := time.Now()
+	metrics := []MetricEntry{
+		{Timestamp: now, Component: "test", Name: "metric", Value: 42, Type: "value"},
+	}
+
+	err := backend.WriteMetrics(metrics)
+	if err == nil {
+		t.Error("Expected WriteMetrics to fail for SQLite backend, but it succeeded")
+	}
 }
 
 func TestSQLiteBackend_EmptyMetrics(t *testing.T) {
 	backend := setupTestSQLiteBackend(t)
 	defer backend.Close()
 
-	// Write empty metrics slice
-	err := backend.WriteMetrics([]MetricEntry{})
+	// Write empty metrics data slice (should succeed)
+	err := backend.WriteMetricsData([]MetricsDataEntry{})
 	if err != nil {
 		t.Fatalf("Failed to write empty metrics: %v", err)
 	}
@@ -362,9 +398,7 @@ func setupTestSQLiteBackend(t *testing.T) *SQLiteBackend {
 	dbPath := filepath.Join(tmpDir, "test.db")
 
 	config := SQLiteConfig{
-		DBPath:        dbPath,
-		FlushInterval: time.Hour, // Long interval for testing
-		BatchSize:     100,
+		DBPath: dbPath,
 	}
 
 	backend, err := NewSQLiteBackend(config)
