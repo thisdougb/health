@@ -55,7 +55,7 @@ Key design principles:
 
 ## Memory Requirements
 
-The package has been tested for memory usage at different metric collection rates. These figures are based on actual test measurements using `go test -run TestMemorySizing`:
+The package has been tested for memory usage at different metric collection rates. These figures are based on actual test measurements using `go test -tags "dev memory" -run TestMemorySizing`:
 
 ### Memory Usage by Collection Rate
 
@@ -95,14 +95,26 @@ The memory-first design ensures sub-microsecond operation times even at high col
 This is a standard Go module using Go 1.14+:
 
 ```bash
-# Run tests
+# Run standard tests (fast, < 1 second)
 go test
+
+# Run development tests with comprehensive coverage (fast, ~3 seconds)
+go test -tags dev
+
+# Run tests with full package coverage
+go test -tags dev ./...
+
+# Run memory sizing tests (slow, ~20 seconds - for performance analysis)
+go test -tags "dev memory" -run TestMemorySizing
+
+# Run stress/resource exhaustion tests (moderate, ~3 seconds - for reliability testing)
+go test -tags "dev longrunning" -run TestErrorConditionSystemResourceExhaustion
 
 # Run specific test
 go test -run TestFunctionName
 
 # Run tests with verbose output
-go test -v
+go test -v -tags dev
 
 # Get dependencies
 go mod tidy
@@ -122,11 +134,29 @@ CC="zig cc -target x86_64-linux" CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build
 
 ## Testing
 
-The package includes comprehensive tests:
-- `health_test.go`: Tests for main State functionality
-- `rolling_metric_test.go`: Tests for rolling average calculations
+The package includes comprehensive tests organized by purpose and performance requirements:
 
-No external testing frameworks are used - standard Go testing only.
+### Standard Tests (Fast, < 1 second)
+- Core functionality tests without persistence or stress testing
+- Use: `go test` (production CI/CD pipelines)
+
+### Development Tests (Fast, ~3 seconds)  
+- Full feature coverage including error recovery and race conditions
+- Use: `go test -tags dev` (development workflow)
+
+### Performance Analysis Tests (Slow, ~20 seconds)
+- Memory sizing tests for capacity planning and performance analysis
+- Use: `go test -tags "dev memory"` (explicit performance testing only)
+
+### Reliability Tests (Moderate, ~3 seconds)
+- Stress testing under high memory/CPU usage conditions
+- Use: `go test -tags "dev longrunning"` (reliability validation)
+
+### Test Architecture
+- No external testing frameworks - standard Go testing only
+- Thread-safe testing with race condition detection
+- Test isolation using build tags for performance optimization
+- Direct async process testing without time.Sleep statements
 
 ## Package Usage Pattern
 

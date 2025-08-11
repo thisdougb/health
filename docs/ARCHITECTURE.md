@@ -240,12 +240,13 @@ func GetHealthSummary(admin AdminInterface, start, end time.Time) (string, error
 - Data lost on application restart
 - Clean state for testing
 
-#### SQLite Persistence Model (Enhanced)
-- Memory-first approach for zero performance impact
-- Background Go routine syncs every ~60 seconds
-- No blocking I/O on metric recording operations
+#### SQLite Persistence Model (CRUD-Only Backend)
+- CRUD-only backend design with universal queue processing
+- Memory-first approach for zero performance impact on collection
+- Universal queue handles all time-windowed processing before storage
+- No internal queues - clean separation of concerns
 - Single-file deployment simplicity
-- Historical metrics for analysis
+- Historical metrics with statistical aggregation
 
 **CGO Compilation Requirements:**
 SQLite backend requires CGO compilation. For cross-platform builds:
@@ -266,17 +267,25 @@ The persistence layer provides pluggable storage backends for historical metric 
 
 ```go
 type Backend interface {
-    WriteMetrics(metrics []MetricEntry) error
+    WriteMetrics(metrics []MetricEntry) error          // Raw metrics - only used by memory backend
+    WriteMetricsData(data []MetricsDataEntry) error    // Processed data - used by all backends
     ReadMetrics(component string, start, end time.Time) ([]MetricEntry, error)
     ListComponents() ([]string, error)
     Close() error
 }
 ```
 
+**CRUD-Only Backend Design**:
+- **Memory Backend**: Handles both raw metrics and processed data for development
+- **SQLite Backend**: CRUD-only, rejects raw metrics, only accepts processed data
+- **Universal Queue**: Processes all raw metrics before calling WriteMetricsData()
+- **Separation of Concerns**: Backends focus on storage, queue handles processing
+
 **Implementations**:
-- **Memory Backend**: Fast in-memory storage for testing and development
-- **SQLite Backend**: Production-ready persistence with async write queue
-- **Async Processing**: Background goroutine batches writes to prevent blocking
+- **Memory Backend**: Fast in-memory CRUD-only storage for testing and development
+- **SQLite Backend**: Production-ready CRUD-only persistence backend
+- **Universal Queue**: Centralized async processing handles all backends consistently
+- **Move-and-Flush Architecture**: Universal queue manages all time-windowed processing
 
 ## Thread Safety Model
 
@@ -681,20 +690,36 @@ func (s *StateImpl) IncrMetric(name string) {
 
 #### Test Execution Commands
 ```bash
-# Run all tests with race detection (REQUIRED for race condition tests)
-go test -race -v ./...
+# Standard tests (fast, < 1 second - for CI/CD pipelines)
+go test
 
-# Run performance benchmarks  
+# Development tests (fast, ~3 seconds - for development workflow)  
+go test -tags dev
+
+# All packages with development coverage
+go test -tags dev ./...
+
+# Race condition testing (REQUIRED for thread safety verification)
+go test -race -tags dev ./...
+
+# Performance analysis tests (slow, ~20 seconds - explicit performance testing)
+go test -tags "dev memory" -run TestMemorySizing
+
+# Stress/reliability tests (moderate, ~3 seconds - for reliability validation)
+go test -tags "dev longrunning" -run TestErrorConditionSystemResourceExhaustion
+
+# Performance benchmarks
 go test -bench=. -benchmem ./...
 
 # Check test coverage (target: >90% for main package)
-go test -cover ./...
+go test -cover -tags dev ./...
 
-# Run specific test categories
-go test -run TestRaceCondition -race ./...  # Race condition tests only
-go test -run TestErrorCondition ./...       # Error condition tests only
-go test -run Benchmark -bench=. ./...       # Benchmark tests only
-go test -run TestBackup ./...               # Backup functionality tests only
+# Run specific test categories  
+go test -run TestRaceCondition -race -tags dev ./...  # Race condition tests only
+go test -run TestErrorCondition -tags dev ./...       # Error condition tests only
+go test -run Benchmark -bench=. ./...                 # Benchmark tests only
+go test -run TestBackup -tags dev ./...               # Backup functionality tests only
+```
 ```
 
 #### Test Writing Guidelines
